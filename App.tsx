@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { type View, type User, type Language, type Announcement } from './types';
 import Navigation from './components/Navigation'; // New Nav
@@ -30,6 +29,7 @@ import UgcGeneratorView from './components/views/UgcGenView';
 import AdminSuiteView from './components/views/AdminSuiteView';
 import SuiteLayout from './components/common/SuiteLayout';
 import ServerSelectionModal from './components/common/ServerSelectionModal';
+import RecaptchaProvider from './components/RecaptchaProvider'; // **NEW**: reCAPTCHA wrapper
 
 // ... (Keep existing Interfaces VideoGenPreset, ImageEditPreset etc.)
 interface VideoGenPreset {
@@ -282,131 +282,134 @@ const App: React.FC = () => {
   if (isShowingWelcome) return <WelcomeAnimation onAnimationEnd={() => { setIsShowingWelcome(false); setActiveView('home'); }} />;
 
   return (
-    // Main App Container - Using dvh for better mobile viewport handling
-    <div className="flex h-screen sm:h-[100dvh] font-sans selection:bg-brand-start selection:text-white relative overflow-hidden">
-        
-        {/* Unified Navigation (Floating Rail/Bottom) */}
-        <Navigation 
-            activeView={activeView} 
-            setActiveView={setActiveView} 
-            currentUser={currentUser} 
-            onLogout={handleLogout}
-            isMenuOpen={isMenuOpen}
-            setIsMenuOpen={setIsMenuOpen}
-        />
+    // **NEW**: Wrap entire app with RecaptchaProvider
+    <RecaptchaProvider>
+      {/* Main App Container - Using dvh for better mobile viewport handling */}
+      <div className="flex h-screen sm:h-[100dvh] font-sans selection:bg-brand-start selection:text-white relative overflow-hidden">
+          
+          {/* Unified Navigation (Floating Rail/Bottom) */}
+          <Navigation 
+              activeView={activeView} 
+              setActiveView={setActiveView} 
+              currentUser={currentUser} 
+              onLogout={handleLogout}
+              isMenuOpen={isMenuOpen}
+              setIsMenuOpen={setIsMenuOpen}
+          />
 
-        <main className="flex-1 flex flex-col min-w-0 md:pl-24 lg:pl-28 transition-all duration-300 relative z-10 h-full">
-            {/* Header (Full Width "Full Petak") */}
-            <header className="sticky top-0 z-30 w-full border-b border-white/10 bg-[#050505]/80 backdrop-blur-xl shrink-0">
-                <div className="w-full px-4 py-3 md:px-6 flex items-center justify-between">
-                    {/* Mobile Logo Left (Rail handles desktop logo) */}
-                    <div className="md:hidden font-black text-xl tracking-tighter flex items-center gap-2 text-white">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-start to-brand-end flex items-center justify-center text-white font-bold text-lg">M</div>
-                        <span>MONOklix</span>
-                    </div>
-                    
-                    {/* Desktop spacer */}
-                    <div className="hidden md:block">
-                        <span className="text-xs font-mono text-neutral-500 uppercase tracking-widest">Mk-OS v2.1</span>
-                    </div>
-                    
-                    {/* Right Actions */}
-                    <div className="flex items-center gap-3 ml-auto">
-                        
-                        {/* Operational Status */}
-                        <div className="hidden md:flex items-center gap-2 text-[10px] font-bold text-green-400 bg-green-900/20 px-3 py-1.5 rounded-full border border-green-500/20">
-                            <span className="relative flex h-2 w-2">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                            </span>
-                            OPERATIONAL
-                        </div>
+          <main className="flex-1 flex flex-col min-w-0 md:pl-24 lg:pl-28 transition-all duration-300 relative z-10 h-full">
+              {/* Header (Full Width "Full Petak") */}
+              <header className="sticky top-0 z-30 w-full border-b border-white/10 bg-[#050505]/80 backdrop-blur-xl shrink-0">
+                  <div className="w-full px-4 py-3 md:px-6 flex items-center justify-between">
+                      {/* Mobile Logo Left (Rail handles desktop logo) */}
+                      <div className="md:hidden font-black text-xl tracking-tighter flex items-center gap-2 text-white">
+                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-start to-brand-end flex items-center justify-center text-white font-bold text-lg">M</div>
+                          <span>MONOklix</span>
+                      </div>
+                      
+                      {/* Desktop spacer */}
+                      <div className="hidden md:block">
+                          <span className="text-xs font-mono text-neutral-500 uppercase tracking-widest">Mk-OS v2.1</span>
+                      </div>
+                      
+                      {/* Right Actions */}
+                      <div className="flex items-center gap-3 ml-auto">
+                          
+                          {/* Operational Status */}
+                          <div className="hidden md:flex items-center gap-2 text-[10px] font-bold text-green-400 bg-green-900/20 px-3 py-1.5 rounded-full border border-green-500/20">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                              </span>
+                              OPERATIONAL
+                          </div>
 
-                        <div className="h-4 w-px bg-white/10 hidden md:block"></div>
+                          <div className="h-4 w-px bg-white/10 hidden md:block"></div>
 
-                        {/* Reload Button */}
-                        <button
-                            onClick={() => window.location.reload()}
-                            className="p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
-                            title="Refresh App"
-                        >
-                            <RefreshCwIcon className="w-5 h-5" />
-                        </button>
+                          {/* Reload Button */}
+                          <button
+                              onClick={() => window.location.reload()}
+                              className="p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
+                              title="Refresh App"
+                          >
+                              <RefreshCwIcon className="w-5 h-5" />
+                          </button>
 
-                        {/* Console Log - Moved position */}
-                        <button
-                            onClick={() => setIsLogSidebarOpen(!isLogSidebarOpen)}
-                            className="p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
-                        >
-                            <TerminalIcon className="w-5 h-5" />
-                        </button>
+                          {/* Console Log - Moved position */}
+                          <button
+                              onClick={() => setIsLogSidebarOpen(!isLogSidebarOpen)}
+                              className="p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
+                          >
+                              <TerminalIcon className="w-5 h-5" />
+                          </button>
 
-                        {/* API Key Status - Moved position */}
-                        <ApiKeyStatus 
-                            activeApiKey={activeApiKey} 
-                            veoTokenRefreshedAt={veoTokenRefreshedAt} 
-                            currentUser={currentUser}
-                            assignTokenProcess={assignTokenProcess}
-                            onUserUpdate={handleUserUpdate}
-                            onOpenChangeServerModal={() => setShowServerModal(true)}
-                            language={language}
-                        />
+                          {/* API Key Status - Moved position */}
+                          <ApiKeyStatus 
+                              activeApiKey={activeApiKey} 
+                              veoTokenRefreshedAt={veoTokenRefreshedAt} 
+                              currentUser={currentUser}
+                              assignTokenProcess={assignTokenProcess}
+                              onUserUpdate={handleUserUpdate}
+                              onOpenChangeServerModal={() => setShowServerModal(true)}
+                              language={language}
+                          />
 
-                        {/* Menu Icon - Mobile Only */}
-                        <button
-                            onClick={() => setIsMenuOpen(true)}
-                            className="md:hidden p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
-                        >
-                            <MenuIcon className="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-            </header>
+                          {/* Menu Icon - Mobile Only */}
+                          <button
+                              onClick={() => setIsMenuOpen(true)}
+                              className="md:hidden p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
+                          >
+                              <MenuIcon className="w-5 h-5" />
+                          </button>
+                      </div>
+                  </div>
+              </header>
 
-            {/* Main Content Area - Responsive scrolling behavior */}
-            {/* UPDATED: Removed fixed overflow to allow natural page scrolling on desktop */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8 custom-scrollbar">
-                {/* Announcement Banner (Holographic Marquee) */}
-                {activeView === 'home' && announcements.length > 0 && (
-                     <div className="mb-6 mx-auto max-w-[1600px] w-full bg-brand-start/10 border border-brand-start/20 text-white p-2 rounded-xl shadow-[0_0_15px_rgba(74,108,247,0.2)] flex items-center gap-3 animate-zoomIn relative overflow-hidden group">
-                        {/* Static Label */}
-                        <div className="flex-shrink-0 z-10 bg-[#0d1117] pr-4 pl-2 py-1 flex items-center gap-2 shadow-lg">
-                             <span className="bg-brand-start px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shadow-lg">New</span>
-                        </div>
-                        {/* Marquee Content */}
-                        <div className="flex-1 overflow-hidden relative h-6">
-                             <div className="absolute whitespace-nowrap animate-marquee flex items-center h-full">
-                                 {/* Duplicate content to create seamless loop effect */}
-                                 <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
-                                 <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
-                                 <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
-                                 <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
-                             </div>
-                        </div>
-                     </div>
-                )}
-                
-                {/* View Content */}
-                <div className="animate-zoomIn w-full min-h-full pb-48 md:pb-0">
-                    {renderView()}
-                </div>
-            </div>
-        </main>
+              {/* Main Content Area - Responsive scrolling behavior */}
+              {/* UPDATED: Removed fixed overflow to allow natural page scrolling on desktop */}
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8 custom-scrollbar">
+                  {/* Announcement Banner (Holographic Marquee) */}
+                  {activeView === 'home' && announcements.length > 0 && (
+                       <div className="mb-6 mx-auto max-w-[1600px] w-full bg-brand-start/10 border border-brand-start/20 text-white p-2 rounded-xl shadow-[0_0_15px_rgba(74,108,247,0.2)] flex items-center gap-3 animate-zoomIn relative overflow-hidden group">
+                          {/* Static Label */}
+                          <div className="flex-shrink-0 z-10 bg-[#0d1117] pr-4 pl-2 py-1 flex items-center gap-2 shadow-lg">
+                               <span className="bg-brand-start px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shadow-lg">New</span>
+                          </div>
+                          {/* Marquee Content */}
+                          <div className="flex-1 overflow-hidden relative h-6">
+                               <div className="absolute whitespace-nowrap animate-marquee flex items-center h-full">
+                                   {/* Duplicate content to create seamless loop effect */}
+                                   <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
+                                   <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
+                                   <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
+                                   <span className="text-sm font-medium text-neutral-200 mr-24">{announcements[0].title}: {announcements[0].content}</span>
+                               </div>
+                          </div>
+                       </div>
+                  )}
+                  
+                  {/* View Content */}
+                  <div className="animate-zoomIn w-full min-h-full pb-48 md:pb-0">
+                      {renderView()}
+                  </div>
+              </div>
+          </main>
 
-        <ConsoleLogSidebar isOpen={isLogSidebarOpen} onClose={() => setIsLogSidebarOpen(false)} />
-        
-        {currentUser && (
-            <ServerSelectionModal 
-                isOpen={showServerModal} 
-                onClose={() => setShowServerModal(false)} 
-                currentUser={currentUser}
-                onServerChanged={() => {
-                    // Force refresh or update state if needed
-                    console.log('Server changed, updating session...');
-                }}
-            />
-        )}
-    </div>
+          <ConsoleLogSidebar isOpen={isLogSidebarOpen} onClose={() => setIsLogSidebarOpen(false)} />
+          
+          {currentUser && (
+              <ServerSelectionModal 
+                  isOpen={showServerModal} 
+                  onClose={() => setShowServerModal(false)} 
+                  currentUser={currentUser}
+                  onServerChanged={() => {
+                      // Force refresh or update state if needed
+                      console.log('Server changed, updating session...');
+                  }}
+              />
+          )}
+      </div>
+    </RecaptchaProvider>
   );
 };
 
