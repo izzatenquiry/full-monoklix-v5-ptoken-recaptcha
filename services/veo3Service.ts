@@ -1,4 +1,3 @@
-
 import { v4 as uuidv4 } from 'uuid';
 import { executeProxiedRequest } from './apiClient';
 
@@ -26,13 +25,6 @@ export const generateVideoWithVeo3 = async (
   const { prompt, imageMediaId, config } = request;
   const isImageToVideo = !!imageMediaId;
 
-  // DEBUG LOGGING
-  if (config.authToken) {
-      console.log(`🔑 [VEO Service] Using Auth Token (Personal): ...${config.authToken.slice(-8)}`);
-  } else {
-      console.warn(`⚠️ [VEO Service] No Auth Token provided in config!`);
-  }
-
   let videoModelKey: string;
   
   if (isImageToVideo) {
@@ -55,7 +47,9 @@ export const generateVideoWithVeo3 = async (
   const requestBody: any = {
     clientContext: {
       tool: 'PINHOLE',
-      userPaygateTier: 'PAYGATE_TIER_TWO'
+      userPaygateTier: 'PAYGATE_TIER_TWO',
+      sessionId: `;${Date.now()}`,  // Generate session ID
+      projectId: uuidv4()  // Generate project ID
     },
     requests: [{
       aspectRatio: aspectRatioValue,
@@ -73,7 +67,7 @@ export const generateVideoWithVeo3 = async (
   // **NEW**: Add recaptcha token to request body if provided
   if (config.recaptchaToken) {
     requestBody.recaptchaToken = config.recaptchaToken;
-    console.log(`🔒 [VEO Service] Attaching reCAPTCHA Token to body: ...${config.recaptchaToken.slice(0, 10)}...`);
+    console.log('🔒 [VEO Service] Including reCAPTCHA token in request');
   }
 
   console.log('🎬 [VEO Service] Constructed T2V/I2V request body. Sending to API client.');
@@ -108,7 +102,7 @@ export const generateVideoWithVeo3 = async (
         errorMsg.includes('403') ||
         errorMsg.toLowerCase().includes('recaptcha') ||
         errorMsg.toLowerCase().includes('verification')) {
-      console.warn('🔐 [VEO Service] Server returned 403/Recaptcha Required. Triggering verification flow.');
+      console.warn('🔐 [VEO Service] reCAPTCHA verification required');
       return {
         operations: [],
         successfulToken: config.authToken || '',
@@ -161,11 +155,6 @@ export const uploadImageForVeo3 = async (
   serverUrl?: string
 ): Promise<{ mediaId: string; successfulToken: string; successfulServerUrl: string }> => {
   console.log(`📤 [VEO Service] Preparing to upload image for VEO. MimeType: ${mimeType}`);
-  
-  if (authToken) {
-      console.log(`🔑 [VEO Upload] Using Auth Token: ...${authToken.slice(-8)}`);
-  }
-
   const imageAspectRatioEnum = aspectRatio === 'landscape' 
     ? 'IMAGE_ASPECT_RATIO_LANDSCAPE' 
     : 'IMAGE_ASPECT_RATIO_PORTRAIT';

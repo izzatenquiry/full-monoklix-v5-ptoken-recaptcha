@@ -1,10 +1,9 @@
-
 // recaptchaService.ts
 // Service to manage reCAPTCHA flow for VEO3 video generation
 
-// ⚠️ CRITICAL: Using the user provided key.
-// Ensure this key is added to "reCAPTCHA v3" in Google Admin Console and "monoklix.com" is in the domain list.
-export const RECAPTCHA_SITE_KEY = '6Lf29SwsAAAAANT1f-p_ASlaAFqNyv53E3bgxoV9'; 
+// ✅ CRITICAL: Using Google labs.google official site key
+// This is the PUBLIC key that Google VEO API expects
+export const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV'; 
 
 /**
  * Shows reCAPTCHA modal and waits for user verification
@@ -16,7 +15,7 @@ export const requestRecaptchaToken = (): Promise<string> => {
     const event = new CustomEvent('request-recaptcha', {
       detail: {
         onVerify: (token: string) => {
-          console.log('✅ reCAPTCHA token received');
+          console.log('✅ reCAPTCHA token received:', token.substring(0, 20) + '...');
           resolve(token);
         },
         onCancel: () => {
