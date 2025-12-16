@@ -2,7 +2,8 @@
 // recaptchaService.ts
 // Service to manage reCAPTCHA flow for VEO3 video generation
 
-// ⚠️ CRITICAL: Using the key generated for monoklix.com domain to prevent "Invalid domain" error.
+// ⚠️ CRITICAL: Using the user provided key.
+// Ensure this key is added to "reCAPTCHA v3" in Google Admin Console and "monoklix.com" is in the domain list.
 export const RECAPTCHA_SITE_KEY = '6Lf29SwsAAAAANT1f-p_ASlaAFqNyv53E3bgxoV9'; 
 
 /**
@@ -11,12 +12,11 @@ export const RECAPTCHA_SITE_KEY = '6Lf29SwsAAAAANT1f-p_ASlaAFqNyv53E3bgxoV9';
  */
 export const requestRecaptchaToken = (): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // This will be handled by the RecaptchaModal component
-    // We'll dispatch a custom event to trigger the modal
+    // This will be handled by the RecaptchaModal component via RecaptchaProvider
     const event = new CustomEvent('request-recaptcha', {
       detail: {
         onVerify: (token: string) => {
-          console.log('✅ reCAPTCHA token received:', token.substring(0, 20) + '...');
+          console.log('✅ reCAPTCHA token received');
           resolve(token);
         },
         onCancel: () => {
