@@ -46,32 +46,35 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
     const renderRecaptcha = () => {
       if (!recaptchaRef.current || !window.grecaptcha) return;
 
-      try {
-        // Reset if already rendered
-        if (widgetIdRef.current !== null) {
-          window.grecaptcha.reset(widgetIdRef.current);
-        } else {
-          widgetIdRef.current = window.grecaptcha.render(recaptchaRef.current, {
-            sitekey: siteKey,
-            callback: (token: string) => {
-              console.log('✅ reCAPTCHA verified:', token.substring(0, 20) + '...');
-              onVerify(token);
-            },
-            'expired-callback': () => {
-              console.warn('⚠️ reCAPTCHA expired');
-              alert('reCAPTCHA expired, please verify again');
-            },
-            'error-callback': () => {
-              console.error('❌ reCAPTCHA error');
-              alert('reCAPTCHA verification failed');
-            }
-          });
+      // CRITICAL: Wait for grecaptcha.ready() before calling render
+      window.grecaptcha.ready(() => {
+        try {
+          // Reset if already rendered
+          if (widgetIdRef.current !== null) {
+            window.grecaptcha.reset(widgetIdRef.current);
+          } else {
+            widgetIdRef.current = window.grecaptcha.render(recaptchaRef.current, {
+              sitekey: siteKey,
+              callback: (token: string) => {
+                console.log('✅ reCAPTCHA verified:', token.substring(0, 20) + '...');
+                onVerify(token);
+              },
+              'expired-callback': () => {
+                console.warn('⚠️ reCAPTCHA expired');
+                alert('reCAPTCHA expired, please verify again');
+              },
+              'error-callback': () => {
+                console.error('❌ reCAPTCHA error');
+                alert('reCAPTCHA verification failed');
+              }
+            });
+          }
+          setIsLoading(false);
+        } catch (error) {
+          console.error('Error rendering reCAPTCHA:', error);
+          setIsLoading(false);
         }
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error rendering reCAPTCHA:', error);
-        setIsLoading(false);
-      }
+      });
     };
 
     loadRecaptcha();
