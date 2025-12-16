@@ -2,7 +2,8 @@
 // recaptchaService.ts
 // Service to manage reCAPTCHA flow for VEO3 video generation
 
-export const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV'; // Updated to correct Google Labs key
+// ⚠️ CRITICAL: Using the key generated for monoklix.com domain to prevent "Invalid domain" error.
+export const RECAPTCHA_SITE_KEY = '6Lf29SwsAAAAANT1f-p_ASlaAFqNyv53E3bgxoV9'; 
 
 /**
  * Shows reCAPTCHA modal and waits for user verification
