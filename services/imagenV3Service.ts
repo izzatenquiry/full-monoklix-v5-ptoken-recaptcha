@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { executeProxiedRequest } from './apiClient';
 import { generateVideoWithVeo3 } from './veo3Service';
 import { cropImageToAspectRatio } from './imageService';
+import { requestRecaptchaToken } from './recaptchaService';
 
 // This map translates user-friendly aspect ratios to the API-specific enums.
 const aspectRatioApiMap: { [key: string]: string } = {
@@ -259,7 +260,7 @@ export const runComprehensiveTokenTest = async (token: string, serviceType: 'all
     // Test Veo
     if (serviceType === 'all' || serviceType === 'Veo') {
         try {
-            await generateVideoWithVeo3({
+            const result = await generateVideoWithVeo3({
                 prompt: 'test',
                 config: {
                     authToken: token,
@@ -268,7 +269,36 @@ export const runComprehensiveTokenTest = async (token: string, serviceType: 'all
                     serverUrl: serverUrl // Pass specific server URL if provided
                 },
             }, undefined, true);
-            results.push({ service: 'Veo', success: true, message: 'Operational' });
+
+            if (result.requiresRecaptcha) {
+                // Trigger reCAPTCHA flow to verify if token works with verification
+                try {
+                    const recaptchaToken = await requestRecaptchaToken();
+                    
+                    const retryResult = await generateVideoWithVeo3({
+                        prompt: 'test',
+                        config: {
+                            authToken: token,
+                            aspectRatio: 'landscape',
+                            useStandardModel: false,
+                            serverUrl: serverUrl,
+                            recaptchaToken: recaptchaToken
+                        },
+                    }, undefined, true);
+
+                    if (retryResult.operations && retryResult.operations.length > 0) {
+                         results.push({ service: 'Veo', success: true, message: 'Operational (Verified)' });
+                    } else {
+                         results.push({ service: 'Veo', success: false, message: 'Failed after Recaptcha' });
+                    }
+                } catch (recaptchaError) {
+                    results.push({ service: 'Veo', success: false, message: 'Recaptcha Required (Cancelled)' });
+                }
+            } else if (result.operations && result.operations.length > 0) {
+                results.push({ service: 'Veo', success: true, message: 'Operational' });
+            } else {
+                results.push({ service: 'Veo', success: false, message: 'No operations returned' });
+            }
         } catch (error) {
              const message = error instanceof Error ? error.message : String(error);
             results.push({ service: 'Veo', success: false, message });
