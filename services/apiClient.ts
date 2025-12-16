@@ -1,3 +1,4 @@
+
 import { addLogEntry } from './aiLogService';
 import { type User } from '../types';
 import { supabase } from './supabaseClient';
@@ -11,8 +12,8 @@ export const getVeoProxyUrl = (): string => {
   if (userSelectedProxy) {
       return userSelectedProxy;
   }
-  // Default if nothing selected - Use s11 (your current server)
-  return 'https://s11.monoklix.com';
+  // Default if nothing selected - Use a known active server (s1)
+  return 'https://s1.monoklix.com';
 };
 
 export const getImagenProxyUrl = (): string => {
@@ -23,7 +24,7 @@ export const getImagenProxyUrl = (): string => {
   if (userSelectedProxy) {
       return userSelectedProxy;
   }
-  return 'https://s11.monoklix.com';
+  return 'https://s1.monoklix.com';
 };
 
 const getPersonalTokenLocal = (): { token: string; createdAt: string; } | null => {
@@ -107,7 +108,7 @@ export const executeProxiedRequest = async (
   logContext: string,
   specificToken?: string,
   onStatusUpdate?: (status: string) => void,
-  overrideServerUrl?: string
+  overrideServerUrl?: string // New parameter to force a specific server
 ): Promise<{ data: any; successfulToken: string; successfulServerUrl: string }> => {
   const isStatusCheck = logContext === 'VEO STATUS';
   
@@ -158,10 +159,9 @@ export const executeProxiedRequest = async (
       throw new Error(`Authentication failed: No Personal Token found. Please go to Settings > Token & API and set your token.`);
   }
 
-  // DEBUG: Log token info (for VEO requests only)
-  if (serviceType === 'veo' && !isStatusCheck) {
-      console.log(`🔑 [API Client] Using Auth Token (Personal): ...${finalToken.slice(-8)}`);
-      console.log(`🔑 [API Client] Token length: ${finalToken.length}`);
+  // 3. Log
+  if (!isStatusCheck && sourceLabel === 'Personal') {
+      // console.log(`[API Client] Using Personal Token: ...${finalToken.slice(-6)}`);
   }
 
   const currentUser = getCurrentUserInternal();
@@ -170,25 +170,13 @@ export const executeProxiedRequest = async (
   try {
       const endpoint = `${currentServerUrl}/api/${serviceType}${relativePath}`;
       
-      // Build headers explicitly
-      const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${finalToken}`,
-          'x-user-username': currentUser?.username || 'unknown',
-      };
-      
-      // DEBUG: Log headers (for VEO requests only)
-      if (serviceType === 'veo' && !isStatusCheck) {
-          console.log(`📤 [API Client] Request headers:`, {
-              'Content-Type': headers['Content-Type'],
-              'Authorization': `Bearer ${finalToken.substring(0, 20)}...`,
-              'x-user-username': headers['x-user-username']
-          });
-      }
-      
       const response = await fetch(endpoint, {
           method: 'POST',
-          headers: headers,
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${finalToken}`,
+              'x-user-username': currentUser?.username || 'unknown',
+          },
           body: JSON.stringify(requestBody),
       });
 
@@ -205,12 +193,6 @@ export const executeProxiedRequest = async (
           let errorMessage = data.error?.message || data.message || `API call failed (${status})`;
           const lowerMsg = errorMessage.toLowerCase();
 
-          // Check for reCAPTCHA requirement
-          if (data.error === 'RECAPTCHA_REQUIRED' || errorMessage.toLowerCase().includes('recaptcha')) {
-              console.warn(`🔐 [API Client] reCAPTCHA verification required`);
-              throw { requiresRecaptcha: true, originalError: data };
-          }
-
           // Check for hard errors
           if (status === 400 || lowerMsg.includes('safety') || lowerMsg.includes('blocked')) {
               console.warn(`[API Client] 🛑 Non-retriable error (${status}). Prompt issue.`);
@@ -226,11 +208,6 @@ export const executeProxiedRequest = async (
       return { data, successfulToken: finalToken, successfulServerUrl: currentServerUrl };
 
   } catch (error) {
-      // Re-throw reCAPTCHA requirement
-      if (error && typeof error === 'object' && 'requiresRecaptcha' in error) {
-          throw error;
-      }
-
       const errMsg = error instanceof Error ? error.message : String(error);
       const isSafetyError = errMsg.includes('[400]') || errMsg.toLowerCase().includes('safety') || errMsg.toLowerCase().includes('blocked');
 

@@ -64,10 +64,10 @@ export const generateVideoWithVeo3 = async (
     requestBody.requests[0].startImage = { mediaId: imageMediaId };
   }
 
-  // **FIXED**: Add recaptcha token to clientContext (not root level!)
+  // **NEW**: Add recaptcha token to request body if provided
   if (config.recaptchaToken) {
-    requestBody.clientContext.recaptchaToken = config.recaptchaToken;
-    console.log('🔒 [VEO Service] Including reCAPTCHA token in clientContext');
+    requestBody.recaptchaToken = config.recaptchaToken;
+    console.log('🔒 [VEO Service] Including reCAPTCHA token in request');
   }
 
   console.log('🎬 [VEO Service] Constructed T2V/I2V request body. Sending to API client.');
