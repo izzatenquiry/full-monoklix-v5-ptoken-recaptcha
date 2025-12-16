@@ -9,10 +9,7 @@ interface RecaptchaModalProps {
 
 declare global {
   interface Window {
-    grecaptcha: {
-      ready: (callback: () => void) => void;
-      execute: (siteKey: string, options: { action: string }) => Promise<string>;
-    };
+    grecaptcha: any;
   }
 }
 
@@ -36,33 +33,53 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
         const scripts = document.querySelectorAll('script[src*="recaptcha"]');
         scripts.forEach(s => s.remove());
         // @ts-ignore
-        window.grecaptcha = undefined;
+        delete window.grecaptcha;
     };
 
     const loadAndExecute = async () => {
       try {
-        console.log('🔐 Initializing reCAPTCHA Enterprise...');
+        console.log('🔐 Loading reCAPTCHA with Google site key...');
         
-        // Force cleanup to prevent conflicts
+        // Cleanup any existing reCAPTCHA
         if (window.grecaptcha) {
              cleanupRecaptcha();
+             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
+        // Load reCAPTCHA script - using standard v3 API
         await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script');
-            // ✅ FIXED: Using Enterprise API (not standard v3)
-            script.src = `https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`;
+            script.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
             script.async = true;
             script.defer = true;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error('Failed to load reCAPTCHA Enterprise script'));
+            script.onload = () => {
+              console.log('✅ reCAPTCHA script loaded');
+              resolve();
+            };
+            script.onerror = () => {
+              console.error('❌ Failed to load reCAPTCHA script');
+              reject(new Error('Failed to load reCAPTCHA script'));
+            };
             document.head.appendChild(script);
+        });
+
+        // Wait for grecaptcha to be ready
+        await new Promise<void>((resolve) => {
+          const checkReady = () => {
+            if (window.grecaptcha && window.grecaptcha.ready) {
+              console.log('✅ grecaptcha.ready available');
+              resolve();
+            } else {
+              console.log('⏳ Waiting for grecaptcha.ready...');
+              setTimeout(checkReady, 100);
+            }
+          };
+          checkReady();
         });
 
         window.grecaptcha.ready(async () => {
           try {
-            console.log('🔒 Executing reCAPTCHA Enterprise...');
-            // Execute with 'submit' action (Google validates this)
+            console.log('🔒 Executing reCAPTCHA...');
             const token = await window.grecaptcha.execute(siteKey, { action: 'submit' });
             
             console.log('✅ reCAPTCHA Enterprise token generated:', token.substring(0, 20) + '...');
@@ -107,7 +124,7 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
           {isLoading && (
             <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                <p className="text-neutral-400 text-sm animate-pulse">Verifying with reCAPTCHA Enterprise...</p>
+                <p className="text-neutral-400 text-sm animate-pulse">Verifying...</p>
             </div>
           )}
           {error && (
@@ -124,7 +141,7 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
             </div>
           )}
         </div>
-        <div className="mt-6 text-[10px] text-neutral-600 text-center">Protected by reCAPTCHA Enterprise</div>
+        <div className="mt-6 text-[10px] text-neutral-600 text-center">Protected by reCAPTCHA</div>
       </div>
     </div>
   );
