@@ -8,14 +8,12 @@ const PORT = process.env.PORT || 3001;
 const VEO_API_BASE = 'https://aisandbox-pa.googleapis.com/v1';
 
 // ===============================
-// 🔑 GOOGLE API KEY + RECAPTCHA
+// 🔑 GOOGLE API CONFIG
 // ===============================
 const GOOGLE_API_KEY = 'AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY';
-const PROJECT_ID = 'gen-lang-client-0426593366';
-const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 
 // ===============================
-// 📝 LOGGING FUNCTION
+// 📝 LOGGER
 // ===============================
 const log = (level, req, ...messages) => {
   const timestamp = new Date().toLocaleString('sv-SE', {
@@ -24,11 +22,9 @@ const log = (level, req, ...messages) => {
   const username = req ? (req.headers['x-user-username'] || 'anonymous') : 'SYSTEM';
   const prefix = `[${timestamp}] [${username}]`;
 
-  // Stringify objects for better readability
   const processedMessages = messages.map(msg => {
     if (typeof msg === 'object' && msg !== null) {
       try {
-        // Truncate long base64 strings in logs
         const tempMsg = JSON.parse(JSON.stringify(msg));
         if (tempMsg?.imageInput?.rawImageBytes?.length > 100) {
             tempMsg.imageInput.rawImageBytes = tempMsg.imageInput.rawImageBytes.substring(0, 50) + '...[TRUNCATED]';
@@ -51,8 +47,6 @@ const log = (level, req, ...messages) => {
   }
 };
 
-
-// A helper to safely parse JSON from a response
 async function getJson(response, req) {
     const text = await response.text();
     try {
@@ -69,38 +63,50 @@ async function getJson(response, req) {
 }
 
 // ===============================
-// 🧩 MIDDLEWARE - APPLE FIX
+// 🧩 MIDDLEWARE
 // ===============================
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests from your domains
-    const allowedOrigins = [
-      'https://app.monoklix.com',
-      'https://app2.monoklix.com',
-      'https://dev.monoklix.com',
-      'https://dev1.monoklix.com',
-      'https://apple.monoklix.com',
-      'http://localhost:3000',
-      'http://localhost:3001'
-    ];
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('CORS not allowed'));
-    }
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-User-Username'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-User-Username', 'User-Agent', 'x-goog-recaptcha-token'],
   maxAge: 86400,
   optionsSuccessStatus: 200
 }));
 
 app.use(express.json({ limit: '50mb' }));
-
-// Apple devices preflight fix
 app.options('*', cors());
+
+// ===============================
+// 🛠️ HELPER: CONSTRUCT HEADERS
+// ===============================
+const buildGoogleHeaders = (req, authToken, recaptchaToken = null) => {
+    // CRITICAL: We must pretend to be the user's browser EXACTLY.
+    // Google checks if the Token's User-Agent matches the Request's User-Agent.
+    const userAgent = req.headers['user-agent'] || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+    const headers = {
+        'x-goog-api-key': GOOGLE_API_KEY,
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+        // SPOOFING: Pretend we are Google Labs to satisfy Origin checks
+        'Origin': 'https://labs.google',
+        'Referer': 'https://labs.google/',
+        'User-Agent': userAgent, 
+    };
+
+    // INJECT RECAPTCHA
+    // Note: The frontend might send it in body (legacy) or header. We handle both.
+    const finalRecaptcha = recaptchaToken || req.headers['x-goog-recaptcha-token'];
+    
+    if (finalRecaptcha) {
+        headers['X-Goog-Recaptcha-Token'] = finalRecaptcha;
+        headers['x-recaptcha-token'] = finalRecaptcha; // Legacy fallback
+        log('log', req, '🔒 Injected X-Goog-Recaptcha-Token header');
+    }
+
+    return headers;
+};
 
 // ===============================
 // 🔍 HEALTH CHECK
@@ -113,43 +119,26 @@ app.get('/health', (req, res) => {
 // ========== VEO3 ENDPOINTS ==========
 // ===============================
 
-// 🎬 TEXT-TO-VIDEO (WITH AUTH TOKEN + RECAPTCHA HEADER)
+// 🎬 TEXT-TO-VIDEO
 app.post('/api/veo/generate-t2v', async (req, res) => {
   log('log', req, '\n🎬 ===== [T2V] TEXT-TO-VIDEO REQUEST =====');
   try {
-    // 1. GET AUTH TOKEN
     const authToken = req.headers.authorization?.replace('Bearer ', '');
-    if (!authToken) {
-      log('error', req, '❌ No auth token provided');
-      return res.status(401).json({ error: 'No auth token provided' });
-    }
+    if (!authToken) return res.status(401).json({ error: 'No auth token provided' });
 
-    // 2. EXTRACT RECAPTCHA FROM BODY AND MOVE TO HEADER
+    // Extract & Clean Body
     let requestBody = { ...req.body };
-    let recaptchaHeader = {};
+    let recaptchaToken = null;
 
     if (requestBody.recaptchaToken) {
-      log('log', req, '🔒 reCAPTCHA token found. Moving to X-Goog-Recaptcha-Token header...');
-      recaptchaHeader = {
-        'X-Goog-Recaptcha-Token': requestBody.recaptchaToken,
-        'X-Recaptcha-Token': requestBody.recaptchaToken // Add fallback just in case
-      };
-      // CRITICAL: Remove from body to prevent 400 Bad Request
-      delete requestBody.recaptchaToken;
+        recaptchaToken = requestBody.recaptchaToken;
+        delete requestBody.recaptchaToken; // MUST REMOVE from body
     }
 
-    log('log', req, '📤 Forwarding to VEO API...');
+    const headers = buildGoogleHeaders(req, authToken, recaptchaToken);
 
-    // 3. BUILD HEADERS
-    const headers = {
-      'x-goog-api-key': GOOGLE_API_KEY,
-      'Authorization': `Bearer ${authToken}`,
-      'Content-Type': 'application/json',
-      'Origin': 'https://labs.google',
-      'Referer': 'https://labs.google/',
-      ...recaptchaHeader // Inject the recaptcha header here
-    };
-
+    log('log', req, '📤 Forwarding to Veo API...');
+    
     const response = await fetch(`${VEO_API_BASE}/video:batchAsyncGenerateVideoText`, {
       method: 'POST',
       headers: headers,
@@ -173,12 +162,10 @@ app.post('/api/veo/generate-t2v', async (req, res) => {
           originalError: data
         });
       }
-      
       return res.status(response.status).json(data);
     }
 
     log('log', req, '✅ [T2V] Success - Operations:', data.operations?.length || 0);
-    log('log', req, '=========================================\n');
     res.json(data);
   } catch (error) {
     log('error', req, '❌ Proxy error (T2V):', error);
@@ -186,43 +173,24 @@ app.post('/api/veo/generate-t2v', async (req, res) => {
   }
 });
 
-// 🖼️ IMAGE-TO-VIDEO (WITH AUTH TOKEN + RECAPTCHA HEADER)
+// 🖼️ IMAGE-TO-VIDEO
 app.post('/api/veo/generate-i2v', async (req, res) => {
   log('log', req, '\n🖼️ ===== [I2V] IMAGE-TO-VIDEO REQUEST =====');
   try {
-    // 1. GET AUTH TOKEN
     const authToken = req.headers.authorization?.replace('Bearer ', '');
-    if (!authToken) {
-      log('error', req, '❌ No auth token provided');
-      return res.status(401).json({ error: 'No auth token provided' });
-    }
+    if (!authToken) return res.status(401).json({ error: 'No auth token provided' });
 
-    // 2. EXTRACT RECAPTCHA FROM BODY AND MOVE TO HEADER
+    // Extract & Clean Body
     let requestBody = { ...req.body };
-    let recaptchaHeader = {};
+    let recaptchaToken = null;
 
     if (requestBody.recaptchaToken) {
-      log('log', req, '🔒 reCAPTCHA token found. Moving to X-Goog-Recaptcha-Token header...');
-      recaptchaHeader = {
-        'X-Goog-Recaptcha-Token': requestBody.recaptchaToken,
-        'X-Recaptcha-Token': requestBody.recaptchaToken
-      };
-      // CRITICAL: Remove from body to prevent 400 Bad Request
-      delete requestBody.recaptchaToken;
+        recaptchaToken = requestBody.recaptchaToken;
+        delete requestBody.recaptchaToken; // MUST REMOVE from body
     }
 
-    log('log', req, '📤 Forwarding to VEO API...');
+    const headers = buildGoogleHeaders(req, authToken, recaptchaToken);
 
-    // 3. BUILD HEADERS
-    const headers = {
-      'x-goog-api-key': GOOGLE_API_KEY,
-      'Authorization': `Bearer ${authToken}`,
-      'Content-Type': 'application/json',
-      'Origin': 'https://labs.google',
-      'Referer': 'https://labs.google/',
-      ...recaptchaHeader // Inject the recaptcha header here
-    };
-    
     const response = await fetch(`${VEO_API_BASE}/video:batchAsyncGenerateVideoStartImage`, {
       method: 'POST',
       headers: headers,
@@ -246,12 +214,10 @@ app.post('/api/veo/generate-i2v', async (req, res) => {
           originalError: data
         });
       }
-      
       return res.status(response.status).json(data);
     }
 
     log('log', req, '✅ [I2V] Success - Operations:', data.operations?.length || 0);
-    log('log', req, '=========================================\n');
     res.json(data);
   } catch (error) {
     log('error', req, '❌ Proxy error (I2V):', error);
@@ -261,42 +227,25 @@ app.post('/api/veo/generate-i2v', async (req, res) => {
 
 // 🔍 CHECK VIDEO STATUS
 app.post('/api/veo/status', async (req, res) => {
-  log('log', req, '\n🔍 ===== [STATUS] CHECK VIDEO STATUS =====');
   try {
     const authToken = req.headers.authorization?.replace('Bearer ', '');
-    if (!authToken) {
-      log('error', req, '❌ No auth token provided');
-      return res.status(401).json({ error: 'No auth token provided' });
-    }
+    if (!authToken) return res.status(401).json({ error: 'No auth token provided' });
 
-    log('log', req, '📦 Payload:', req.body);
+    const headers = buildGoogleHeaders(req, authToken);
     
     const response = await fetch(`${VEO_API_BASE}/video:batchCheckAsyncVideoGenerationStatus`, {
       method: 'POST',
-      headers: {
-        'x-goog-api-key': GOOGLE_API_KEY,
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'Origin': 'https://labs.google',
-        'Referer': 'https://labs.google/'
-      },
+      headers: headers,
       body: JSON.stringify(req.body)
     });
 
     const data = await getJson(response, req);
-    log('log', req, '📨 Response status:', response.status);
     
     if (!response.ok) {
       log('error', req, '❌ Veo API Error (Status):', data);
       return res.status(response.status).json(data);
     }
 
-    if (data.operations?.[0]) {
-      log('log', req, '📊 Operation status:', data.operations[0].status, 'Done:', data.operations[0].done);
-    }
-
-    log('log', req, '✅ [STATUS] Success');
-    log('log', req, '=========================================\n');
     res.json(data);
   } catch (error) {
     log('error', req, '❌ Proxy error (STATUS):', error);
@@ -309,23 +258,13 @@ app.post('/api/veo/upload', async (req, res) => {
   log('log', req, '\n📤 ===== [VEO UPLOAD] IMAGE UPLOAD =====');
   try {
     const authToken = req.headers.authorization?.replace('Bearer ', '');
-    if (!authToken) {
-      log('error', req, '❌ No auth token provided');
-      return res.status(401).json({ error: 'No auth token provided' });
-    }
+    if (!authToken) return res.status(401).json({ error: 'No auth token provided' });
 
-    log('log', req, '📤 Mime type:', req.body.imageInput?.mimeType);
-    log('log', req, '📤 Aspect ratio:', req.body.imageInput?.aspectRatio);
+    const headers = buildGoogleHeaders(req, authToken);
 
     const response = await fetch(`${VEO_API_BASE}:uploadUserImage`, {
       method: 'POST',
-      headers: {
-        'x-goog-api-key': GOOGLE_API_KEY,
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'Origin': 'https://labs.google',
-        'Referer': 'https://labs.google/'
-      },
+      headers: headers,
       body: JSON.stringify(req.body)
     });
 
@@ -339,7 +278,6 @@ app.post('/api/veo/upload', async (req, res) => {
 
     const mediaId = data.mediaGenerationId?.mediaGenerationId || data.mediaId;
     log('log', req, '✅ [VEO UPLOAD] Success - MediaId:', mediaId);
-    log('log', req, '=========================================\n');
     res.json(data);
   } catch (error) {
     log('error', req, '❌ Proxy error (VEO UPLOAD):', error);
@@ -356,23 +294,13 @@ app.post('/api/imagen/generate', async (req, res) => {
   log('log', req, '\n🎨 ===== [IMAGEN] GENERATE IMAGE =====');
   try {
     const authToken = req.headers.authorization?.replace('Bearer ', '');
-    if (!authToken) {
-      log('error', req, '❌ No auth token provided');
-      return res.status(401).json({ error: 'No auth token provided' });
-    }
+    if (!authToken) return res.status(401).json({ error: 'No auth token provided' });
 
-    log('log', req, '📤 Forwarding to Imagen API...');
-    log('log', req, '📦 Request body:', req.body);
+    const headers = buildGoogleHeaders(req, authToken);
 
     const response = await fetch(`${VEO_API_BASE}/whisk:generateImage`, {
       method: 'POST',
-      headers: {
-        'x-goog-api-key': GOOGLE_API_KEY,
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'Origin': 'https://labs.google',
-        'Referer': 'https://labs.google/'
-      },
+      headers: headers,
       body: JSON.stringify(req.body)
     });
 
@@ -385,7 +313,6 @@ app.post('/api/imagen/generate', async (req, res) => {
     }
 
     log('log', req, '✅ [IMAGEN] Success - Generated:', data.imagePanels?.length || 0, 'panels');
-    log('log', req, '=========================================\n');
     res.json(data);
   } catch (error) {
     log('error', req, '❌ Proxy error (IMAGEN GENERATE):', error);
@@ -398,23 +325,13 @@ app.post('/api/imagen/run-recipe', async (req, res) => {
   log('log', req, '\n✏️ ===== [IMAGEN RECIPE] RUN RECIPE =====');
   try {
     const authToken = req.headers.authorization?.replace('Bearer ', '');
-    if (!authToken) {
-      log('error', req, '❌ No auth token provided');
-      return res.status(401).json({ error: 'No auth token provided' });
-    }
+    if (!authToken) return res.status(401).json({ error: 'No auth token provided' });
 
-    log('log', req, '📤 Forwarding recipe to Imagen API...');
-    log('log', req, '📦 Full body:', req.body);
+    const headers = buildGoogleHeaders(req, authToken);
 
     const response = await fetch(`${VEO_API_BASE}/whisk:runImageRecipe`, {
       method: 'POST',
-      headers: {
-        'x-goog-api-key': GOOGLE_API_KEY,
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'Origin': 'https://labs.google',
-        'Referer': 'https://labs.google/'
-      },
+      headers: headers,
       body: JSON.stringify(req.body)
     });
 
@@ -431,7 +348,6 @@ app.post('/api/imagen/run-recipe', async (req, res) => {
     
     log('log', req, '✅ [IMAGEN RECIPE] Success');
     log('log', req, `   Generated ${panelCount} panel(s) with ${imageCount} image(s)`);
-    log('log', req, '=========================================\n');
     
     res.json(data);
   } catch (error) {
@@ -445,26 +361,13 @@ app.post('/api/imagen/upload', async (req, res) => {
   log('log', req, '\n📤 ===== [IMAGEN UPLOAD] IMAGE UPLOAD =====');
   try {
     const authToken = req.headers.authorization?.replace('Bearer ', '');
-    if (!authToken) {
-      log('error', req, '❌ No auth token provided');
-      return res.status(401).json({ error: 'No auth token provided' });
-    }
+    if (!authToken) return res.status(401).json({ error: 'No auth token provided' });
 
-    const uploadMediaInput = req.body.uploadMediaInput;
-    if (uploadMediaInput) {
-      log('log', req, '📤 Media category:', uploadMediaInput.mediaCategory);
-    }
-    log('log', req, '📦 Full request body keys:', Object.keys(req.body));
+    const headers = buildGoogleHeaders(req, authToken);
 
     const response = await fetch(`${VEO_API_BASE}:uploadUserImage`, {
       method: 'POST',
-      headers: {
-        'x-goog-api-key': GOOGLE_API_KEY,
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'Origin': 'https://labs.google',
-        'Referer': 'https://labs.google/'
-      },
+      headers: headers,
       body: JSON.stringify(req.body)
     });
 
@@ -481,7 +384,6 @@ app.post('/api/imagen/upload', async (req, res) => {
                    data.mediaId;
     
     log('log', req, '✅ [IMAGEN UPLOAD] Success - MediaId:', mediaId);
-    log('log', req, '=========================================\n');
     res.json(data);
   } catch (error) {
     log('error', req, '❌ Proxy error (IMAGEN UPLOAD):', error);
@@ -490,55 +392,33 @@ app.post('/api/imagen/upload', async (req, res) => {
 });
 
 // ===============================
-// 📥 DOWNLOAD VIDEO (CORS BYPASS)
+// 📥 DOWNLOAD VIDEO
 // ===============================
 app.get('/api/veo/download-video', async (req, res) => {
-  log('log', req, '\n📥 ===== [DOWNLOAD] VIDEO DOWNLOAD =====');
   try {
     const videoUrl = req.query.url;
     
     if (!videoUrl || typeof videoUrl !== 'string') {
-      log('error', req, '❌ No URL provided');
       return res.status(400).json({ error: 'Video URL is required' });
     }
-
-    log('log', req, '📥 Video URL:', videoUrl);
-    log('log', req, '📥 Fetching and streaming from Google Storage...');
 
     const response = await fetch(videoUrl);
     
     if (!response.ok) {
-      log('error', req, '❌ Failed to fetch video:', response.status, response.statusText);
-      const errorBody = await response.text();
-      return res.status(response.status).json({ error: `Failed to download: ${response.statusText}`, details: errorBody });
+      log('error', req, '❌ Failed to fetch video:', response.status);
+      return res.status(response.status).json({ error: `Failed to download: ${response.statusText}` });
     }
 
     const contentType = response.headers.get('content-type') || 'video/mp4';
     const contentLength = response.headers.get('content-length');
     const filename = `monoklix-video-${Date.now()}.mp4`;
 
-    log('log', req, '📦 Video headers received:', { contentType, contentLength });
-
     res.setHeader('Content-Type', contentType);
-    if (contentLength) {
-      res.setHeader('Content-Length', contentLength);
-    }
+    if (contentLength) res.setHeader('Content-Length', contentLength);
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.setHeader('Accept-Ranges', 'bytes');
 
     response.body.pipe(res);
-
-    response.body.on('end', () => {
-      log('log', req, '✅ [DOWNLOAD] Video stream finished to client.');
-      log('log', req, '=========================================\n');
-    });
-
-    response.body.on('error', (err) => {
-      log('error', req, '❌ [DOWNLOAD] Error during video stream pipe:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Error streaming video' });
-      }
-    });
 
   } catch (error) {
     log('error', req, '❌ Proxy error (DOWNLOAD):', error);
@@ -558,23 +438,6 @@ app.listen(PORT, '0.0.0.0', () => {
   logSystem('🚀 Veo3 & Imagen Proxy Server STARTED');
   logSystem('🚀 ===================================');
   logSystem(`📍 Port: ${PORT}`);
-  logSystem(`📍 Local: http://localhost:${PORT}`);
-  logSystem(`📍 Health: http://localhost:${PORT}/health`);
-  logSystem('✅ CORS: Apple Fix Enabled');
-  logSystem('🔧 Debug logging: ENABLED');
-  logSystem('🔐 Authentication: API Key + OAuth Token + reCAPTCHA ✅');
-  logSystem(`🔐 API Key: ${GOOGLE_API_KEY.substring(0, 20)}...`);
-  logSystem(`🔐 reCAPTCHA Project: ${PROJECT_ID}`);
-  logSystem('===================================\n');
-  logSystem('📋 VEO3 Endpoints:');
-  logSystem('   POST /api/veo/generate-t2v (reCAPTCHA Header Injection ✅)');
-  logSystem('   POST /api/veo/generate-i2v (reCAPTCHA Header Injection ✅)');
-  logSystem('   POST /api/veo/status');
-  logSystem('   POST /api/veo/upload');
-  logSystem('   GET  /api/veo/download-video');
-  logSystem('📋 IMAGEN Endpoints:');
-  logSystem('   POST /api/imagen/generate');
-  logSystem('   POST /api/imagen/run-recipe');
-  logSystem('   POST /api/imagen/upload');
+  logSystem('✅ Header Spoofing: ACTIVE (User-Agent + Origin + Recaptcha)');
   logSystem('===================================\n');
 });
