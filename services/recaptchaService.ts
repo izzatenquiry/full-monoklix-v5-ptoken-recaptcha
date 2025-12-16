@@ -1,7 +1,7 @@
 // recaptchaService.ts
 // Service to manage reCAPTCHA flow for VEO3 video generation
 
-export const RECAPTCHA_SITE_KEY = '6LcWrCAqAAAAACPvE-zEPnVKS9M5jxqbJwj_Qlif'; // Google's public reCAPTCHA site key for labs.google
+export const RECAPTCHA_SITE_KEY = '6Lf29SwsAAAAANT1f-p_ASlaAFqNyv53E3bgxoV9'; // Google's public reCAPTCHA site key for labs.google
 
 /**
  * Shows reCAPTCHA modal and waits for user verification
