@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 
 interface RecaptchaModalProps {
@@ -41,49 +42,47 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
 
     const loadAndExecute = async () => {
       try {
-        console.log('🔐 Initializing reCAPTCHA Enterprise...');
+        console.log('🔄 Initializing reCAPTCHA V3 (Standard)...');
         
-        // Force cleanup to prevent conflicts
+        // Force cleanup to prevent mixup with Enterprise
         if (window.grecaptcha) {
              cleanupRecaptcha();
         }
 
         await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script');
-            // ✅ FIXED: Using Enterprise API (not standard v3)
-            script.src = `https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`;
+            // Using standard api.js
+            script.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
             script.async = true;
             script.defer = true;
             script.onload = () => resolve();
-            script.onerror = () => reject(new Error('Failed to load reCAPTCHA Enterprise script'));
+            script.onerror = () => reject(new Error('Failed to load reCAPTCHA script'));
             document.head.appendChild(script);
         });
 
         window.grecaptcha.ready(async () => {
           try {
-            console.log('🔒 Executing reCAPTCHA Enterprise...');
-            // Execute with 'submit' action (Google validates this)
+            console.log('🤖 Executing reCAPTCHA...');
             const token = await window.grecaptcha.execute(siteKey, { action: 'submit' });
             
-            console.log('✅ reCAPTCHA Enterprise token generated:', token.substring(0, 20) + '...');
+            console.log('✅ Token received');
             setIsLoading(false);
             
             setTimeout(() => {
-                console.log('✅ reCAPTCHA verified, calling callback');
                 onVerify(token);
                 processingRef.current = false;
             }, 500);
 
           } catch (execError: any) {
-            console.error('❌ reCAPTCHA Execution Error:', execError);
-            setError('Verification failed. Please try again.');
+            console.error('❌ Execution Error:', execError);
+            setError('Verification failed. Invalid Key or Domain.');
             setIsLoading(false);
             processingRef.current = false;
           }
         });
 
       } catch (err) {
-        console.error('❌ reCAPTCHA Setup Error:', err);
+        console.error('❌ Setup Error:', err);
         setError('Failed to initialize security check.');
         setIsLoading(false);
         processingRef.current = false;
@@ -107,7 +106,7 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
           {isLoading && (
             <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                <p className="text-neutral-400 text-sm animate-pulse">Verifying with reCAPTCHA Enterprise...</p>
+                <p className="text-neutral-400 text-sm animate-pulse">Verifying...</p>
             </div>
           )}
           {error && (
@@ -120,11 +119,11 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
           {!isLoading && !error && (
             <div className="animate-zoomIn">
               <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/20"><span className="text-2xl">✅</span></div>
-              <p className="text-green-400 text-sm font-bold">Verified!</p>
+              <p className="text-green-400 text-sm font-bold">Verified</p>
             </div>
           )}
         </div>
-        <div className="mt-6 text-[10px] text-neutral-600 text-center">Protected by reCAPTCHA Enterprise</div>
+        <div className="mt-6 text-[10px] text-neutral-600 text-center">Protected by reCAPTCHA</div>
       </div>
     </div>
   );
