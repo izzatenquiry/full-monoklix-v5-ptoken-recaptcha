@@ -78,33 +78,8 @@ export const uploadImageForNanoBanana = async (
 };
 
 /**
- * Generate image with NanoBanana Pro (Text-to-Image)
- * 
- * RESPONSE STRUCTURE (from Google API):
- * {
- *   media: [
- *     {
- *       name: "...",
- *       workflowId: "...",
- *       image: {
- *         generatedImage: {
- *           encodedImage: "...",
- *           seed: 644495,
- *           mediaGenerationId: "...",
- *           mediaVisibility: "PRIVATE",
- *           prompt: "3 people are fishing...",
- *           modelNameType: "GEM_PIX_2",
- *           workflowId: "...",
- *           fifeUrl: "https://storage.googleapis.com/...",
- *           aspectRatio: "IMAGE_ASPECT_RATIO_LANDSCAPE",
- *           requestData: {...}
- *         }
- *       }
- *     },
- *     { ... second variation ... }
- *   ],
- *   workflows: [...]
- * }
+ * Generate image with NanoBanana (Text-to-Image)
+ * Model: GEM_PIX_2
  */
 export const generateImageWithNanoBanana = async (
   request: NanoBananaGenerationRequest, 
@@ -126,7 +101,7 @@ export const generateImageWithNanoBanana = async (
           sessionId: `;${Date.now()}`
       },
       imageModelSettings: {
-          imageModel: 'NANOBANANA_PRO', // NanoBanana Pro model
+          imageModel: 'GEM_PIX_2', // Updated to correct model name
           aspectRatio: aspectRatioApiMap[config.aspectRatio || '1:1'] || "IMAGE_ASPECT_RATIO_SQUARE",
       },
       prompt: fullPrompt,
@@ -147,44 +122,33 @@ export const generateImageWithNanoBanana = async (
     config.serverUrl
   );
 
-  // CORRECTED: Parse the actual response structure with media array
+  // Parse response to match UI expectations (imagePanels[0].generatedImages[0].encodedImage)
   if (result.media && Array.isArray(result.media)) {
-    console.log(`🍌 [NanoBanana Service] Received T2I result with ${result.media.length} image variations.`);
+    console.log(`🍌 [NanoBanana Service] Received T2I result with ${result.media.length} media items.`);
     
-    // Extract all image URLs from the media array
-    const imageUrls = result.media.map((mediaItem: any) => {
-      const generatedImage = mediaItem.image?.generatedImage;
-      if (generatedImage?.fifeUrl) {
+    const generatedImages = result.media.map((item: any) => {
         return {
-          url: generatedImage.fifeUrl,
-          workflowId: mediaItem.workflowId,
-          seed: generatedImage.seed,
-          prompt: generatedImage.prompt
+            encodedImage: item.image?.generatedImage?.encodedImage,
+            fifeUrl: item.image?.generatedImage?.fifeUrl,
+            seed: item.image?.generatedImage?.seed
         };
-      }
-      return null;
-    }).filter(Boolean);
+    }).filter((img: any) => img.encodedImage);
 
-    console.log(`🍌 [NanoBanana Service] Extracted ${imageUrls.length} valid image URLs`);
-    
-    // Return structure compatible with existing code
-    return {
-      ...result,
-      imagePanels: imageUrls.map((img: any) => ({
-        imageUrl: img.url,
-        workflowId: img.workflowId,
-        seed: img.seed
-      }))
-    };
+    if (generatedImages.length > 0) {
+        return {
+            imagePanels: [{ generatedImages }]
+        };
+    }
   }
 
-  // Fallback to old structure if response format changes
-  console.log(`🍌 [NanoBanana Service] Using fallback response parsing`);
+  // Fallback for older response structure
+  console.log(`🍌 [NanoBanana Service] Using raw response (fallback parsing).`);
   return result;
 };
 
 /**
  * Run image recipe with NanoBanana (Image-to-Image editing)
+ * Model: GEM_PIX_2
  */
 export const runNanoBananaRecipe = async (
   request: {
@@ -204,7 +168,7 @@ export const runNanoBananaRecipe = async (
         },
         seed: config.seed || Math.floor(Math.random() * 2147483647),
         imageModelSettings: {
-            imageModel: 'NANOBANANA_R2I', // Recipe-based NanoBanana model
+            imageModel: 'GEM_PIX_2', // Updated to correct model name
             aspectRatio: aspectRatioApiMap[config.aspectRatio || '1:1'] || "IMAGE_ASPECT_RATIO_SQUARE"
         },
         userInstruction,
@@ -221,34 +185,25 @@ export const runNanoBananaRecipe = async (
       config.serverUrl
     );
     
-    // CORRECTED: Parse the actual response structure with media array
+    // Parse response to match UI expectations
     if (result.media && Array.isArray(result.media)) {
-      console.log(`✏️ [NanoBanana Service] Received recipe result with ${result.media.length} image variations.`);
-      
-      const imageUrls = result.media.map((mediaItem: any) => {
-        const generatedImage = mediaItem.image?.generatedImage;
-        if (generatedImage?.fifeUrl) {
-          return {
-            url: generatedImage.fifeUrl,
-            workflowId: mediaItem.workflowId,
-            seed: generatedImage.seed,
-            prompt: generatedImage.prompt
-          };
+        console.log(`✏️ [NanoBanana Service] Received recipe result with ${result.media.length} media items.`);
+        
+        const generatedImages = result.media.map((item: any) => {
+            return {
+                encodedImage: item.image?.generatedImage?.encodedImage,
+                fifeUrl: item.image?.generatedImage?.fifeUrl,
+                seed: item.image?.generatedImage?.seed
+            };
+        }).filter((img: any) => img.encodedImage);
+
+        if (generatedImages.length > 0) {
+            return {
+                imagePanels: [{ generatedImages }]
+            };
         }
-        return null;
-      }).filter(Boolean);
-
-      return {
-        ...result,
-        imagePanels: imageUrls.map((img: any) => ({
-          imageUrl: img.url,
-          workflowId: img.workflowId,
-          seed: img.seed
-        }))
-      };
     }
-
-    console.log(`✏️ [NanoBanana Service] Using fallback response parsing`);
+    
     return result;
 };
 
@@ -329,7 +284,7 @@ export const testNanoBananaToken = async (token: string, serverUrl?: string): Pr
     try {
         console.log(`🍌 [NanoBanana Service] Testing token health...`);
         
-        await generateImageWithNanoBanana({
+        const result = await generateImageWithNanoBanana({
             prompt: 'test',
             config: {
                 aspectRatio: '1:1',
@@ -338,8 +293,15 @@ export const testNanoBananaToken = async (token: string, serverUrl?: string): Pr
             }
         }, undefined, true);
         
-        console.log(`✅ [NanoBanana Service] Token test successful`);
-        return true;
+        // Check if we got a valid response structure
+        const hasImages = result.imagePanels?.[0]?.generatedImages?.length > 0;
+        
+        if (hasImages) {
+             console.log(`✅ [NanoBanana Service] Token test successful`);
+             return true;
+        }
+        
+        throw new Error('No images returned in test');
     } catch (error) {
         console.error(`❌ [NanoBanana Service] Token test failed:`, error);
         return false;
