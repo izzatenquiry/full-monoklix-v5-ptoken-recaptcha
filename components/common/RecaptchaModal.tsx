@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 
 interface RecaptchaModalProps {
@@ -11,8 +10,10 @@ interface RecaptchaModalProps {
 declare global {
   interface Window {
     grecaptcha: {
-      ready: (callback: () => void) => void;
-      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+      enterprise: {
+        ready: (callback: () => void) => void;
+        execute: (siteKey: string, options: { action: string }) => Promise<string>;
+      };
     };
   }
 }
@@ -37,53 +38,71 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
         const scripts = document.querySelectorAll('script[src*="recaptcha"]');
         scripts.forEach(s => s.remove());
         // @ts-ignore
-        window.grecaptcha = undefined;
+        if (window.grecaptcha?.enterprise) {
+            // @ts-ignore
+            window.grecaptcha.enterprise = undefined;
+        }
     };
 
     const loadAndExecute = async () => {
       try {
-        console.log('🔄 Initializing reCAPTCHA V3 (Standard)...');
+        console.log('🔄 Initializing reCAPTCHA Enterprise...');
         
-        // Force cleanup to prevent mixup with Enterprise
-        if (window.grecaptcha) {
-             cleanupRecaptcha();
-        }
+        // Force cleanup to prevent script conflicts
+        cleanupRecaptcha();
 
+        // Load reCAPTCHA Enterprise script
         await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script');
-            // Using standard api.js
-            script.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+            // CRITICAL: Using enterprise.js instead of api.js
+            script.src = `https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`;
             script.async = true;
             script.defer = true;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error('Failed to load reCAPTCHA script'));
+            script.onload = () => {
+                console.log('✅ reCAPTCHA Enterprise script loaded');
+                resolve();
+            };
+            script.onerror = () => {
+                console.error('❌ Failed to load reCAPTCHA Enterprise script');
+                reject(new Error('Failed to load reCAPTCHA Enterprise script'));
+            };
             document.head.appendChild(script);
         });
 
-        window.grecaptcha.ready(async () => {
+        // Wait for grecaptcha.enterprise to be ready
+        if (!window.grecaptcha?.enterprise) {
+            throw new Error('reCAPTCHA Enterprise API not available');
+        }
+
+        window.grecaptcha.enterprise.ready(async () => {
           try {
-            console.log('🤖 Executing reCAPTCHA...');
-            const token = await window.grecaptcha.execute(siteKey, { action: 'submit' });
+            console.log('🤖 Executing reCAPTCHA Enterprise...');
             
-            console.log('✅ Token received');
+            // Execute reCAPTCHA Enterprise with action
+            const token = await window.grecaptcha.enterprise.execute(siteKey, { 
+                action: 'submit' 
+            });
+            
+            console.log('✅ reCAPTCHA Enterprise token received:', token.substring(0, 50) + '...');
             setIsLoading(false);
             
+            // Small delay for better UX
             setTimeout(() => {
                 onVerify(token);
                 processingRef.current = false;
             }, 500);
 
           } catch (execError: any) {
-            console.error('❌ Execution Error:', execError);
-            setError('Verification failed. Invalid Key or Domain.');
+            console.error('❌ reCAPTCHA Execution Error:', execError);
+            setError('Verification failed. Please check site key configuration.');
             setIsLoading(false);
             processingRef.current = false;
           }
         });
 
       } catch (err) {
-        console.error('❌ Setup Error:', err);
-        setError('Failed to initialize security check.');
+        console.error('❌ reCAPTCHA Setup Error:', err);
+        setError('Failed to initialize security verification.');
         setIsLoading(false);
         processingRef.current = false;
       }
@@ -102,28 +121,44 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-zoomIn">
       <div className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col items-center justify-center text-center space-y-6">
-          <h3 className="text-xl font-bold text-white tracking-tight">Security Check</h3>
+          <h3 className="text-xl font-bold text-white tracking-tight">Security Verification</h3>
+          <p className="text-sm text-neutral-400">Google Enterprise Security Check</p>
+          
           {isLoading && (
             <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                <p className="text-neutral-400 text-sm animate-pulse">Verifying...</p>
+                <p className="text-neutral-400 text-sm animate-pulse">Verifying with Google...</p>
             </div>
           )}
+          
           {error && (
             <div className="animate-zoomIn">
-              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20"><span className="text-2xl">⚠️</span></div>
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+                <span className="text-2xl">⚠️</span>
+              </div>
               <p className="text-red-400 text-sm font-medium mb-4">{error}</p>
-              <button onClick={onClose} className="px-6 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-sm transition-all">Close & Retry</button>
+              <button 
+                onClick={onClose} 
+                className="px-6 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-sm transition-all"
+              >
+                Close & Retry
+              </button>
             </div>
           )}
+          
           {!isLoading && !error && (
             <div className="animate-zoomIn">
-              <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/20"><span className="text-2xl">✅</span></div>
-              <p className="text-green-400 text-sm font-bold">Verified</p>
+              <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/20">
+                <span className="text-2xl">✅</span>
+              </div>
+              <p className="text-green-400 text-sm font-bold">Verified Successfully</p>
             </div>
           )}
         </div>
-        <div className="mt-6 text-[10px] text-neutral-600 text-center">Protected by reCAPTCHA</div>
+        
+        <div className="mt-6 text-[10px] text-neutral-600 text-center">
+          Protected by reCAPTCHA Enterprise
+        </div>
       </div>
     </div>
   );
