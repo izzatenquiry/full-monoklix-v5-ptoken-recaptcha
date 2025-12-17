@@ -4,13 +4,14 @@ import { type User, type AiLogItem, type Language } from '../../types';
 import { updateUserProfile, saveUserPersonalAuthToken, assignPersonalTokenAndIncrementUsage } from '../../services/userService';
 import {
     CreditCardIcon, CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ChatIcon,
-    AlertTriangleIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, WhatsAppIcon, InformationCircleIcon, SparklesIcon, VideoIcon, ImageIcon, KeyIcon, ActivityIcon
+    AlertTriangleIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, WhatsAppIcon, InformationCircleIcon, SparklesIcon, VideoIcon, ImageIcon, KeyIcon, ActivityIcon, ShieldCheckIcon
 } from '../Icons';
 import Spinner from '../common/Spinner';
 import Tabs, { type Tab } from '../common/Tabs';
 import { getTranslations } from '../../services/translations';
 import { getFormattedCacheStats, clearVideoCache } from '../../services/videoCacheService';
 import { runComprehensiveTokenTest, type TokenTestResult } from '../../services/imagenV3Service';
+import { getRecaptchaSiteKey, setRecaptchaSiteKey, DEFAULT_RECAPTCHA_SITE_KEY } from '../../services/recaptchaService';
 import eventBus from '../../services/eventBus';
 
 // Define the types for the settings view tabs
@@ -114,6 +115,11 @@ const ProfilePanel: React.FC<ProfilePanelProps> = ({ currentUser, onUserUpdate, 
     const [claimError, setClaimError] = useState<string | null>(null);
     const activeApiKey = sessionStorage.getItem('monoklix_session_api_key');
 
+    // reCAPTCHA Configuration State
+    const [siteKey, setSiteKey] = useState('');
+    const [showSiteKey, setShowSiteKey] = useState(false);
+    const [siteKeySaveStatus, setSiteKeySaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
      useEffect(() => {
         return () => {
             if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
@@ -125,6 +131,11 @@ const ProfilePanel: React.FC<ProfilePanelProps> = ({ currentUser, onUserUpdate, 
         setPersonalAuthToken(tokenFromProp);
         setTestResults(null);
     }, [currentUser.personalAuthToken]);
+
+    // Load current site key
+    useEffect(() => {
+        setSiteKey(getRecaptchaSiteKey());
+    }, []);
 
     const getAccountStatus = (user: User): { text: string; colorClass: string } => {
         switch (user.status) {
@@ -165,6 +176,25 @@ const ProfilePanel: React.FC<ProfilePanelProps> = ({ currentUser, onUserUpdate, 
             setPersonalTokenSaveStatus('saved');
         }
         setTimeout(() => setPersonalTokenSaveStatus('idle'), 3000);
+    };
+
+    const handleSaveSiteKey = () => {
+        setSiteKeySaveStatus('saving');
+        setRecaptchaSiteKey(siteKey);
+        setTimeout(() => {
+            setSiteKeySaveStatus('saved');
+            setTimeout(() => setSiteKeySaveStatus('idle'), 2000);
+        }, 500);
+    };
+
+    const handleResetSiteKey = () => {
+        setSiteKeySaveStatus('saving');
+        setRecaptchaSiteKey(null); // Resets to default
+        setSiteKey(DEFAULT_RECAPTCHA_SITE_KEY);
+        setTimeout(() => {
+            setSiteKeySaveStatus('saved');
+            setTimeout(() => setSiteKeySaveStatus('idle'), 2000);
+        }, 500);
     };
 
     const handleTestToken = useCallback(async () => {
@@ -334,6 +364,49 @@ const ProfilePanel: React.FC<ProfilePanelProps> = ({ currentUser, onUserUpdate, 
                         {personalTokenSaveStatus === 'saved' && <span className="text-sm text-green-600 font-medium flex items-center gap-1"><CheckCircleIcon className="w-4 h-4"/> {T_Api.updated}</span>}
                         {personalTokenSaveStatus === 'error' && <span className="text-sm text-red-600 font-medium flex items-center gap-1"><XIcon className="w-4 h-4"/> {T_Api.saveFail}</span>}
                     </div>
+                 </div>
+
+                 {/* Manual reCAPTCHA Site Key Input */}
+                 <div className="mt-6 pt-6 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
+                    <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 flex items-center gap-2">
+                        <ShieldCheckIcon className="w-4 h-4 text-neutral-500" />
+                        reCAPTCHA Site Key (Advanced)
+                    </label>
+                    <div className="relative">
+                        <input
+                            type={showSiteKey ? 'text' : 'password'}
+                            value={siteKey}
+                            onChange={(e) => setSiteKey(e.target.value)}
+                            placeholder="Enter custom reCAPTCHA Site Key"
+                            className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors font-mono text-sm"
+                        />
+                        <button 
+                            onClick={() => setShowSiteKey(!showSiteKey)} 
+                            className="absolute inset-y-0 right-0 px-3 flex items-center text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                        >
+                            {showSiteKey ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
+                        </button>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2">
+                        <button 
+                            onClick={handleSaveSiteKey} 
+                            disabled={siteKeySaveStatus === 'saving'} 
+                            className="px-4 py-2 bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-sm font-semibold rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors disabled:opacity-50"
+                        >
+                            {siteKeySaveStatus === 'saving' ? <Spinner /> : 'Save Key'}
+                        </button>
+                        <button 
+                            onClick={handleResetSiteKey}
+                            disabled={siteKeySaveStatus === 'saving'}
+                            className="text-xs text-neutral-500 hover:text-red-500 underline"
+                        >
+                            Reset to Default
+                        </button>
+                        {siteKeySaveStatus === 'saved' && <span className="text-sm text-green-600 font-medium flex items-center gap-1"><CheckCircleIcon className="w-4 h-4"/> Saved!</span>}
+                    </div>
+                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400">
+                        Only change this if you are experiencing reCAPTCHA errors. Requires a page refresh to take effect.
+                    </p>
                  </div>
             </div>
             {/* --- END API SECTION --- */}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import RecaptchaModal from './common/RecaptchaModal';
-import { RECAPTCHA_SITE_KEY } from '../services/recaptchaService';
+import { getRecaptchaSiteKey } from '../services/recaptchaService';
 
 interface RecaptchaProviderProps {
   children: React.ReactNode;
@@ -58,7 +58,7 @@ const RecaptchaProvider: React.FC<RecaptchaProviderProps> = ({ children }) => {
         isOpen={isModalOpen}
         onVerify={handleVerify}
         onClose={handleClose}
-        siteKey={RECAPTCHA_SITE_KEY}
+        siteKey={getRecaptchaSiteKey()}
       />
     </>
   );

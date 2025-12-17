@@ -9,9 +9,31 @@
  */
 
 // ✅ Google's Official Site Key (from labs.google HAR analysis)
-export const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
+export const DEFAULT_RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 
 export const RECAPTCHA_PROJECT_ID = 'gen-lang-client-0426593366';
+
+const SITE_KEY_STORAGE_KEY = 'monoklix_recaptcha_site_key';
+
+/**
+ * Get the currently active reCAPTCHA Site Key.
+ * Checks localStorage first, falls back to default.
+ */
+export const getRecaptchaSiteKey = (): string => {
+  return localStorage.getItem(SITE_KEY_STORAGE_KEY) || DEFAULT_RECAPTCHA_SITE_KEY;
+};
+
+/**
+ * Save a custom reCAPTCHA Site Key.
+ * Pass empty string or null to reset to default.
+ */
+export const setRecaptchaSiteKey = (key: string | null) => {
+  if (!key || !key.trim()) {
+    localStorage.removeItem(SITE_KEY_STORAGE_KEY);
+  } else {
+    localStorage.setItem(SITE_KEY_STORAGE_KEY, key.trim());
+  }
+};
 
 /**
  * Token cache to avoid regenerating tokens too frequently
@@ -77,6 +99,8 @@ let tokenTimestamp: number = 0;
  */
 export const loadRecaptchaScript = (): Promise<void> => {
   return new Promise((resolve, reject) => {
+    const siteKey = getRecaptchaSiteKey();
+
     // Check if already loaded
     if (window.grecaptcha && window.grecaptcha.enterprise) {
       resolve();
@@ -84,7 +108,13 @@ export const loadRecaptchaScript = (): Promise<void> => {
     }
 
     // Check if script tag already exists
-    if (document.querySelector(`script[src*="recaptcha/enterprise.js"]`)) {
+    const existingScript = document.querySelector(`script[src*="recaptcha/enterprise.js"]`);
+    if (existingScript) {
+      // If the existing script uses a different key, we might need to warn or reload
+      if (!existingScript.getAttribute('src')?.includes(siteKey)) {
+          console.warn('reCAPTCHA script already loaded with different key. A page refresh is recommended.');
+      }
+
       // Script loading, wait for it
       const checkInterval = setInterval(() => {
         if (window.grecaptcha && window.grecaptcha.enterprise) {
@@ -102,12 +132,12 @@ export const loadRecaptchaScript = (): Promise<void> => {
 
     // Create and load script
     const script = document.createElement('script');
-    script.src = `https://www.google.com/recaptcha/enterprise.js?render=${RECAPTCHA_SITE_KEY}`;
+    script.src = `https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`;
     script.async = true;
     script.defer = true;
 
     script.onload = () => {
-      console.log('✅ reCAPTCHA Enterprise script loaded');
+      console.log(`✅ reCAPTCHA Enterprise script loaded (${siteKey.substring(0, 5)}...)`);
       // Wait for grecaptcha.enterprise to be available
       const checkReady = setInterval(() => {
         if (window.grecaptcha && window.grecaptcha.enterprise) {
@@ -155,9 +185,10 @@ export const generateRecaptchaToken = async (action: string = 'submit'): Promise
       throw new Error('reCAPTCHA Enterprise not available');
     }
 
-    console.log('🔐 Generating reCAPTCHA Enterprise token...');
+    const siteKey = getRecaptchaSiteKey();
+    console.log(`🔐 Generating reCAPTCHA Enterprise token with key ${siteKey.substring(0,6)}...`);
     
-    const token = await window.grecaptcha.enterprise.execute(RECAPTCHA_SITE_KEY, { 
+    const token = await window.grecaptcha.enterprise.execute(siteKey, { 
       action: action 
     });
 
