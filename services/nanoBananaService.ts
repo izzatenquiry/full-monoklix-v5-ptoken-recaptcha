@@ -79,6 +79,32 @@ export const uploadImageForNanoBanana = async (
 
 /**
  * Generate image with NanoBanana Pro (Text-to-Image)
+ * 
+ * RESPONSE STRUCTURE (from Google API):
+ * {
+ *   media: [
+ *     {
+ *       name: "...",
+ *       workflowId: "...",
+ *       image: {
+ *         generatedImage: {
+ *           encodedImage: "...",
+ *           seed: 644495,
+ *           mediaGenerationId: "...",
+ *           mediaVisibility: "PRIVATE",
+ *           prompt: "3 people are fishing...",
+ *           modelNameType: "GEM_PIX_2",
+ *           workflowId: "...",
+ *           fifeUrl: "https://storage.googleapis.com/...",
+ *           aspectRatio: "IMAGE_ASPECT_RATIO_LANDSCAPE",
+ *           requestData: {...}
+ *         }
+ *       }
+ *     },
+ *     { ... second variation ... }
+ *   ],
+ *   workflows: [...]
+ * }
  */
 export const generateImageWithNanoBanana = async (
   request: NanoBananaGenerationRequest, 
@@ -121,7 +147,39 @@ export const generateImageWithNanoBanana = async (
     config.serverUrl
   );
 
-  console.log(`🍌 [NanoBanana Service] Received T2I result with ${result.imagePanels?.length || 0} panels.`);
+  // CORRECTED: Parse the actual response structure with media array
+  if (result.media && Array.isArray(result.media)) {
+    console.log(`🍌 [NanoBanana Service] Received T2I result with ${result.media.length} image variations.`);
+    
+    // Extract all image URLs from the media array
+    const imageUrls = result.media.map((mediaItem: any) => {
+      const generatedImage = mediaItem.image?.generatedImage;
+      if (generatedImage?.fifeUrl) {
+        return {
+          url: generatedImage.fifeUrl,
+          workflowId: mediaItem.workflowId,
+          seed: generatedImage.seed,
+          prompt: generatedImage.prompt
+        };
+      }
+      return null;
+    }).filter(Boolean);
+
+    console.log(`🍌 [NanoBanana Service] Extracted ${imageUrls.length} valid image URLs`);
+    
+    // Return structure compatible with existing code
+    return {
+      ...result,
+      imagePanels: imageUrls.map((img: any) => ({
+        imageUrl: img.url,
+        workflowId: img.workflowId,
+        seed: img.seed
+      }))
+    };
+  }
+
+  // Fallback to old structure if response format changes
+  console.log(`🍌 [NanoBanana Service] Using fallback response parsing`);
   return result;
 };
 
@@ -163,7 +221,34 @@ export const runNanoBananaRecipe = async (
       config.serverUrl
     );
     
-    console.log(`✏️ [NanoBanana Service] Received recipe result with ${result.imagePanels?.length || 0} panels.`);
+    // CORRECTED: Parse the actual response structure with media array
+    if (result.media && Array.isArray(result.media)) {
+      console.log(`✏️ [NanoBanana Service] Received recipe result with ${result.media.length} image variations.`);
+      
+      const imageUrls = result.media.map((mediaItem: any) => {
+        const generatedImage = mediaItem.image?.generatedImage;
+        if (generatedImage?.fifeUrl) {
+          return {
+            url: generatedImage.fifeUrl,
+            workflowId: mediaItem.workflowId,
+            seed: generatedImage.seed,
+            prompt: generatedImage.prompt
+          };
+        }
+        return null;
+      }).filter(Boolean);
+
+      return {
+        ...result,
+        imagePanels: imageUrls.map((img: any) => ({
+          imageUrl: img.url,
+          workflowId: img.workflowId,
+          seed: img.seed
+        }))
+      };
+    }
+
+    console.log(`✏️ [NanoBanana Service] Using fallback response parsing`);
     return result;
 };
 
