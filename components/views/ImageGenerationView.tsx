@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { addHistoryItem } from '../../services/historyService';
 import Spinner from '../common/Spinner';
@@ -8,6 +7,7 @@ import TwoColumnLayout from '../common/TwoColumnLayout';
 import { getImageEditingPrompt } from '../../services/promptManager';
 import { handleApiError } from '../../services/errorHandler';
 import { generateImageWithImagen, editOrComposeWithImagen } from '../../services/imagenV3Service';
+import { generateImageWithNanoBanana, editOrComposeWithNanoBanana } from '../../services/nanoBananaService';
 import { incrementImageUsage } from '../../services/userService';
 import { type User, type Language } from '../../types';
 import CreativeDirectionPanel from '../common/CreativeDirectionPanel';
@@ -72,6 +72,9 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
   const [negativePrompt, setNegativePrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'1:1' | '9:16' | '16:9'>('9:16');
   const [creativeState, setCreativeState] = useState<CreativeDirectionState>(getInitialCreativeDirectionState());
+  
+  // NEW: Model selector state
+  const [selectedModel, setSelectedModel] = useState<'imagen' | 'nanobanana'>('imagen');
 
   const isEditing = referenceImages.length > 0;
 
@@ -86,16 +89,17 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
         if (state.negativePrompt) setNegativePrompt(state.negativePrompt);
         if (state.aspectRatio) setAspectRatio(state.aspectRatio);
         if (state.creativeState) setCreativeState(state.creativeState);
+        if (state.selectedModel) setSelectedModel(state.selectedModel);
       }
     } catch (e) { console.error("Failed to load state from session storage", e); }
   }, []);
 
   useEffect(() => {
     try {
-      const stateToSave = { prompt, numberOfImages, selectedImageIndex, negativePrompt, aspectRatio, creativeState };
+      const stateToSave = { prompt, numberOfImages, selectedImageIndex, negativePrompt, aspectRatio, creativeState, selectedModel };
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(stateToSave));
     } catch (e) { console.error("Failed to save state to session storage", e); }
-  }, [prompt, numberOfImages, selectedImageIndex, negativePrompt, aspectRatio, creativeState]);
+  }, [prompt, numberOfImages, selectedImageIndex, negativePrompt, aspectRatio, creativeState, selectedModel]);
 
   useEffect(() => {
     if (imageToReEdit) {
@@ -166,6 +170,10 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
   const performGeneration = useCallback(async (serverUrl?: string) => {
       let resultImage: string | undefined;
       
+      // Choose the appropriate service based on selected model
+      const generateFunction = selectedModel === 'nanobanana' ? generateImageWithNanoBanana : generateImageWithImagen;
+      const editFunction = selectedModel === 'nanobanana' ? editOrComposeWithNanoBanana : editOrComposeWithImagen;
+      
       if (isEditing) {
           const creativeDetails = Object.entries(creativeState)
             .filter(([key, value]) => key !== 'creativityLevel' && value !== 'Random' && value !== 'None')
@@ -176,12 +184,12 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
           const fullPrompt = negativePrompt ? `${promptWithCreativity}, negative prompt: ${negativePrompt}` : promptWithCreativity;
           const editingPrompt = getImageEditingPrompt(fullPrompt);
 
-          const result = await editOrComposeWithImagen({
+          const result = await editFunction({
               prompt: editingPrompt,
               images: referenceImages.map(img => ({ ...img, category: 'MEDIA_CATEGORY_SUBJECT', caption: 'image to edit' })),
               config: { aspectRatio, serverUrl }
           });
-          resultImage = result.imagePanels[0]?.generatedImages[0]?.encodedImage;
+          resultImage = result.imagePanels?.[0]?.generatedImages?.[0]?.encodedImage || result.uploadedMedia?.[0]?.mediaInput?.mediaGenerationId;
       } else {
           const creativeDetails = Object.entries(creativeState)
             .filter(([key, value]) => key !== 'creativityLevel' && value !== 'Random' && value !== 'None')
@@ -190,7 +198,7 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
           
           const fullPrompt = [prompt, creativeDetails].filter(Boolean).join(', ');
 
-          const result = await generateImageWithImagen({
+          const result = await generateFunction({
               prompt: fullPrompt,
               config: {
                   sampleCount: 1,
@@ -207,15 +215,16 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
       }
       
       return resultImage;
-  }, [isEditing, prompt, referenceImages, negativePrompt, aspectRatio, creativeState]);
+  }, [isEditing, prompt, referenceImages, negativePrompt, aspectRatio, creativeState, selectedModel]);
 
   const generateOneImage = useCallback(async (index: number, serverUrl?: string) => {
       try {
           const resultImage = await performGeneration(serverUrl);
           
+          const modelPrefix = selectedModel === 'nanobanana' ? '🍌 NanoBanana' : 'Imagen';
           await addHistoryItem({
               type: 'Image',
-              prompt: isEditing ? `Image Edit: ${prompt}` : `Image Generation: ${prompt}`,
+              prompt: isEditing ? `${modelPrefix} Edit: ${prompt}` : `${modelPrefix}: ${prompt}`,
               result: resultImage
           });
 
@@ -240,7 +249,7 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
           });
           setProgress(prev => prev + 1);
       }
-  }, [performGeneration, isEditing, prompt, currentUser, onUserUpdate]);
+  }, [performGeneration, isEditing, prompt, currentUser, onUserUpdate, selectedModel]);
 
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() && !isEditing) {
@@ -303,6 +312,7 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
     setStatusMessage('');
     setAspectRatio('9:16');
     setCreativeState(getInitialCreativeDirectionState());
+    setSelectedModel('imagen');
     sessionStorage.removeItem(SESSION_KEY);
   }, []);
 
@@ -313,6 +323,46 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
         <p className="text-sm sm:text-base text-neutral-500 dark:text-neutral-400 mt-1">{isEditing ? 'Edit your images with simple text commands.' : 'Create stunning images from text descriptions.'}</p>
       </div>
       
+      {/* NEW: Model Selector */}
+      <div>
+        <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+          Image Generation Model
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setSelectedModel('imagen')}
+            disabled={isLoading}
+            className={`p-3 rounded-lg border-2 transition-all ${
+              selectedModel === 'imagen'
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
+            } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">Imagen 4</div>
+            <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+              Google's advanced model
+            </div>
+          </button>
+          
+          <button
+            onClick={() => setSelectedModel('nanobanana')}
+            disabled={isLoading}
+            className={`p-3 rounded-lg border-2 transition-all ${
+              selectedModel === 'nanobanana'
+                ? 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/30'
+                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
+            } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 flex items-center gap-1">
+              <span>🍌</span> NanoBanana Pro
+            </div>
+            <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+              Creative community model
+            </div>
+          </button>
+        </div>
+      </div>
+
       <div>
         <label className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Reference / Source Images (up to 4)</label>
           <div className="bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 min-h-[116px]">
@@ -387,7 +437,7 @@ const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo
     <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
       <button onClick={() => handleLocalReEdit(imageBase64, mimeType)} title="Re-edit" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><WandIcon className="w-4 h-4" /></button>
       <button onClick={() => onCreateVideo({ prompt, image: { base64: imageBase64, mimeType } })} title="Create Video" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><VideoIcon className="w-4 h-4" /></button>
-      <button onClick={() => downloadImage(imageBase64, `monoklix-image-${Date.now()}.png`)} title="Download" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><DownloadIcon className="w-4 h-4" /></button>
+      <button onClick={() => downloadImage(imageBase64, `monoklix-${selectedModel}-${Date.now()}.png`)} title="Download" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><DownloadIcon className="w-4 h-4" /></button>
     </div>
   );
 

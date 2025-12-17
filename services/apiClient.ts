@@ -1,4 +1,3 @@
-
 import { addLogEntry } from './aiLogService';
 import { type User } from '../types';
 import { supabase } from './supabaseClient';
@@ -25,6 +24,11 @@ export const getImagenProxyUrl = (): string => {
       return userSelectedProxy;
   }
   return 'https://s1.monoklix.com';
+};
+
+// NEW: NanoBanana uses same proxy infrastructure as Imagen
+export const getNanoBananaProxyUrl = (): string => {
+  return getImagenProxyUrl();
 };
 
 const getPersonalTokenLocal = (): { token: string; createdAt: string; } | null => {
@@ -103,7 +107,7 @@ const getCurrentUserInternal = (): User | null => {
 
 export const executeProxiedRequest = async (
   relativePath: string,
-  serviceType: 'veo' | 'imagen',
+  serviceType: 'veo' | 'imagen' | 'nanobanana', // UPDATED: Added 'nanobanana'
   requestBody: any,
   logContext: string,
   specificToken?: string,
@@ -116,8 +120,14 @@ export const executeProxiedRequest = async (
       console.log(`[API Client] Starting process for: ${logContext}`);
   }
   
-  // Use override URL if provided, otherwise default to standard proxy selection
-  const currentServerUrl = overrideServerUrl || (serviceType === 'veo' ? getVeoProxyUrl() : getImagenProxyUrl());
+  // UPDATED: Added getNanoBananaProxyUrl() to server URL selection
+  const currentServerUrl = overrideServerUrl || (
+    serviceType === 'veo' 
+      ? getVeoProxyUrl() 
+      : serviceType === 'nanobanana'
+        ? getNanoBananaProxyUrl()
+        : getImagenProxyUrl()
+  );
   
   // 1. Acquire Server Slot (Rate Limiting at Server Level)
   const isGenerationRequest = logContext.includes('GENERATE') || logContext.includes('RECIPE');
