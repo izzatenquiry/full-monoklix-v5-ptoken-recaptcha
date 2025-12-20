@@ -54,13 +54,16 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
 (async () => {
   const userId = "${currentUser.id}";
   const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
-  const ya29Regex = /ya29\\.[a-zA-Z0-9_-]{50,}/;
   
   console.log("%c 🚀 Quantum Bridge V8: Activation Mode ", "background: #4A6CF7; color: white; font-weight: bold; padding: 10px; border-radius: 8px;");
   
   try {
-    let ya29 = "";
-    if (window.WIZ_global_data) ya29 = JSON.stringify(window.WIZ_global_data).match(ya29Regex)?.[0] || "";
+    console.log("🔑 Mengambil sesi Google...");
+    const sessionRes = await fetch('https://labs.google/fx/api/auth/session');
+    const sessionData = await sessionRes.json();
+    const ya29 = sessionData.accessToken;
+
+    if (!ya29) throw new Error("AccessToken tidak dijumpai. Pastikan anda telah login ke Google Labs.");
 
     console.log("🔐 Menjana token pengesahan reCAPTCHA...");
     const recToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
@@ -81,9 +84,12 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
         });
         alert("✅ AKTIVASI BERJAYA! Sesi anda telah disahkan. Sila kembali ke MONOklix dan mulakan penjanaan dengan segera (bawah 2 minit).");
     } else {
-        alert("❌ Gagal: Pastikan tab Google Labs aktif.");
+        alert("❌ Gagal: Data tidak lengkap.");
     }
-  } catch (e) { alert("❌ Ralat: Sila refresh tab Google Labs."); }
+  } catch (e) { 
+      console.error(e);
+      alert("❌ Ralat: Sila pastikan tab Google Labs aktif dan anda telah login."); 
+  }
 })();`.trim();
         
         navigator.clipboard.writeText(snippet);
@@ -103,7 +109,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                          </div>
                          <h3 className="text-xl font-black text-white">Quantum Bridge V8</h3>
                     </div>
-                    <p className="text-sm text-neutral-400 mt-1 max-w-md">Aktifkan pengesahan <strong>ya29</strong> dan <strong>reCAPTCHA</strong> anda. Token reCAPTCHA hanya sah untuk tempoh singkat (2 minit). Sila mulakan penjanaan sejurus selepas aktivasi berjaya.</p>
+                    <p className="text-sm text-neutral-400 mt-1 max-w-md">Aktifkan pengesahan <strong>ya29</strong> dan <strong>reCAPTCHA</strong> anda menggunakan endpoint internal Google. Token reCAPTCHA hanya sah untuk 2 minit.</p>
                     <div className="mt-6 flex flex-col sm:flex-row gap-3">
                         <button onClick={copyBridgeSnippet} className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] transition-all shadow-lg active:scale-95">
                             <ClipboardIcon className="w-5 h-5" /> Salin Skrip Aktivasi
@@ -133,7 +139,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                     </div>
                     <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
                         <p className="text-[10px] text-blue-400 font-medium leading-relaxed uppercase tracking-widest">
-                            reCAPTCHA handshake is managed automatically via Quantum Bridge.
+                            reCAPTCHA handshake is managed via X-Recaptcha-Token header.
                         </p>
                     </div>
                 </div>

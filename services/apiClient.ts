@@ -17,7 +17,8 @@ export const getImagenProxyUrl = (): string => {
 export const getNanoBananaProxyUrl = (): string => getImagenProxyUrl();
 
 /**
- * Tarik token ya29 dan reCAPTCHA paling segar dari Supabase.
+ * Mengambil data token paling segar dari DB sebelum memulakan request.
+ * Ini kritikal kerana token reCAPTCHA mempunyai jangka hayat yang sangat pendek.
  */
 const getFreshTokensFromDB = async (): Promise<{ ya29: string | null, rec: string | null }> => {
     try {
@@ -63,7 +64,7 @@ export const executeProxiedRequest = async (
 
   if (!finalYa29) throw new Error("Sesi tidak aktif. Sila jalankan Quantum Bridge di tab Google Labs.");
 
-  // HEADERS: reCAPTCHA dihantar sebagai header, BUKAN dalam body JSON.
+  // HEADERS: reCAPTCHA dihantar sebagai header, BUKAN dalam body JSON seperti yang diminta.
   const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${finalYa29}`,
@@ -72,7 +73,7 @@ export const executeProxiedRequest = async (
 
   if (rec) {
       headers['X-Recaptcha-Token'] = rec;
-      console.log('🔐 [API Client] reCAPTCHA token attached to headers.');
+      console.log('🔐 [API Client] reCAPTCHA token attached to headers from DB.');
   }
 
   try {
@@ -91,7 +92,7 @@ export const executeProxiedRequest = async (
 
       if (!response.ok) {
           if (response.status === 403 || text.includes('INVALID_RECAPTCHA') || text.includes('RECAPTCHA_REQUIRED')) {
-              throw new Error("Handshake reCAPTCHA gagal. Sila jalankan aktivasi di tab Labs semula.");
+              throw new Error("Handshake reCAPTCHA gagal atau tamat tempoh. Sila aktivasi semula di tab Labs.");
           }
           throw new Error(data.error?.message || `API Error ${response.status}`);
       }
