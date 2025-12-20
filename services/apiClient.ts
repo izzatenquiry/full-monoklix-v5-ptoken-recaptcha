@@ -120,23 +120,26 @@ export const executeProxiedRequest = async (
   let sourceLabel: 'Specific' | 'Personal' = 'Specific';
 
   if (!finalToken) {
-      const personalLocal = getPersonalTokenLocal();
-      if (personalLocal) {
-          finalToken = personalLocal.token;
-          sourceLabel = 'Personal';
-      } 
-      
-      if (!finalToken) {
+      // Prioritaskan token paling segar dari DB jika melakukan generasi
+      if (isGenerationRequest) {
           const freshToken = await getFreshPersonalTokenFromDB();
           if (freshToken) {
               finalToken = freshToken;
               sourceLabel = 'Personal';
           }
       }
+
+      if (!finalToken) {
+          const personalLocal = getPersonalTokenLocal();
+          if (personalLocal) {
+              finalToken = personalLocal.token;
+              sourceLabel = 'Personal';
+          }
+      }
   }
 
   if (!finalToken) {
-      throw new Error(`Authentication failed: No Personal Token found. Sila masukkan token ya29 dalam Settings.`);
+      throw new Error(`Authentication failed: No Personal Token found. Sila gunakan 'Quantum Bridge' dalam Settings.`);
   }
 
   const currentUser = getCurrentUserInternal();
