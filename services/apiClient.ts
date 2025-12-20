@@ -116,30 +116,41 @@ export const executeProxiedRequest = async (
     if (onStatusUpdate) onStatusUpdate('Processing...');
   }
   
-  let finalToken = specificToken?.trim();
+  let rawToken = specificToken?.trim();
   let sourceLabel: 'Specific' | 'Personal' = 'Specific';
 
-  if (!finalToken) {
-      // Prioritaskan token paling segar dari DB jika melakukan generasi
+  if (!rawToken) {
       if (isGenerationRequest) {
-          const freshToken = await getFreshPersonalTokenFromDB();
-          if (freshToken) {
-              finalToken = freshToken;
-              sourceLabel = 'Personal';
-          }
+          rawToken = await getFreshPersonalTokenFromDB() || undefined;
+          sourceLabel = 'Personal';
       }
-
-      if (!finalToken) {
+      if (!rawToken) {
           const personalLocal = getPersonalTokenLocal();
           if (personalLocal) {
-              finalToken = personalLocal.token;
+              rawToken = personalLocal.token;
               sourceLabel = 'Personal';
           }
       }
   }
 
-  if (!finalToken) {
+  if (!rawToken) {
       throw new Error(`Authentication failed: No Personal Token found. Sila gunakan 'Quantum Bridge' dalam Settings.`);
+  }
+
+  // LOGIK HIBRID V4: Pisahkan ya29 dan reCAPTCHA jika ada format [REC]
+  let finalYa29 = rawToken;
+  let syncedRecaptcha = null;
+  
+  if (rawToken.includes('[REC]')) {
+      const parts = rawToken.split('[REC]');
+      finalYa29 = parts[0].trim();
+      syncedRecaptcha = parts[1].trim();
+  }
+
+  // Jika ini request Veo dan kita ada reCAPTCHA yang di-sync, masukkan ke body
+  if (serviceType === 'veo' && syncedRecaptcha && !requestBody.recaptchaToken) {
+      requestBody.recaptchaToken = syncedRecaptcha;
+      console.log('🛡️ [API Client] Injecting Synced reCAPTCHA Token for Veo.');
   }
 
   const currentUser = getCurrentUserInternal();
@@ -151,7 +162,7 @@ export const executeProxiedRequest = async (
           method: 'POST',
           headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${finalToken}`,
+              'Authorization': `Bearer ${finalYa29}`,
               'x-user-username': currentUser?.username || 'unknown',
           },
           body: JSON.stringify(requestBody),
@@ -171,7 +182,7 @@ export const executeProxiedRequest = async (
           throw new Error(errorMessage);
       }
 
-      return { data, successfulToken: finalToken, successfulServerUrl: currentServerUrl };
+      return { data, successfulToken: rawToken, successfulServerUrl: currentServerUrl };
 
   } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
