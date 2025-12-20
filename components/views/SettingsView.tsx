@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { type User, type Language } from '../../types';
 import { updateUserProfile, saveUserPersonalAuthToken } from '../../services/userService';
 import {
-    CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ImageIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, InformationCircleIcon, SparklesIcon, KeyIcon, ShieldCheckIcon, UploadIcon, CloudSunIcon
+    CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ImageIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, InformationCircleIcon, SparklesIcon, KeyIcon, ShieldCheckIcon, UploadIcon, CloudSunIcon, ClipboardIcon
 } from '../Icons';
 import Spinner from '../common/Spinner';
 import Tabs, { type Tab } from '../common/Tabs';
@@ -104,7 +104,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 if (res.success) onUserUpdate(res.user);
                 alert("Token ya29 berjaya diekstrak!");
             } else {
-                alert("Token ya29 tidak ditemui dalam fail tersebut.");
+                alert("Token ya29 tidak ditemui. Pastikan fail mengandungi kuki '__Secure-next-auth.session-token' atau string 'ya29'.");
             }
         } catch (err) { alert("Format fail tidak sah."); }
     };
@@ -117,6 +117,12 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
         alert(allOk ? "Token Aktif ✅" : "Token Gagal/Expired ❌");
     };
 
+    const copySnippet = () => {
+        const snippet = `const c = document.cookie.split('; ').find(r => r.startsWith('__Secure-next-auth.session-token=')); if(c){ const t = c.split('=')[1]; const p = JSON.parse(atob(t.split('.')[1])); console.log("TOKEN ANDA:", p.accessToken || p.access_token); } else { console.log("Kuki tidak dijumpai. Sila login Google Labs."); }`;
+        navigator.clipboard.writeText(snippet);
+        alert("Kod disalin! Jalankan ini di Console labs.google.com");
+    };
+
     return (
         <div className="space-y-6">
             <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
@@ -124,12 +130,12 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                     <div>
                         <h3 className="text-xl font-bold flex items-center gap-2 text-white">
                             <KeyIcon className="w-6 h-6 text-brand-start" /> 
-                            VEO3 Access Token
+                            Google Access (ya29)
                         </h3>
-                        <p className="text-sm text-neutral-400 mt-1">Gunakan token <strong>ya29</strong> untuk akses penjanaan video.</p>
+                        <p className="text-sm text-neutral-400 mt-1">Sistem akan mengekstrak token <strong>ya29</strong> secara mendalam dari kuki sesi anda.</p>
                     </div>
                     <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-brand-start/20 border border-brand-start/30 text-brand-start px-4 py-2 rounded-xl text-xs font-bold hover:bg-brand-start/30 transition-all">
-                        <UploadIcon className="w-4 h-4" /> Import ya29
+                        <UploadIcon className="w-4 h-4" /> Import Fail
                     </button>
                     <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" />
                 </div>
@@ -165,11 +171,18 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                     </div>
                 </div>
 
-                <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-                    <h4 className="text-xs font-bold text-blue-400 uppercase flex items-center gap-2 mb-2">
-                        <InformationCircleIcon className="w-4 h-4" /> Cara Mendapatkan Token
+                <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl space-y-3">
+                    <h4 className="text-xs font-bold text-blue-400 uppercase flex items-center gap-2">
+                        <InformationCircleIcon className="w-4 h-4" /> Cara Mendapatkan Token ya29
                     </h4>
-                    <p className="text-xs text-neutral-400">Muat naik fail <strong>session.json</strong> atau <strong>cookies.json</strong> yang dijana oleh extractor anda. Sistem akan mencari string yang bermula dengan 'ya29' secara automatik.</p>
+                    <p className="text-xs text-neutral-400">Muat naik fail <strong>session.json</strong> dari Electron anda, ATAU gunakan kod di bawah:</p>
+                    <div className="flex items-center gap-2 bg-black/60 p-2 rounded border border-white/10">
+                        <code className="text-[10px] text-blue-300 truncate flex-1">const c = document.cookie...</code>
+                        <button onClick={copySnippet} className="p-1 hover:text-white text-neutral-500 transition-colors" title="Salin Kod Javascript">
+                            <ClipboardIcon className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <p className="text-[10px] text-neutral-500 italic">Jalankan kod ini di Console <strong>labs.google.com</strong> untuk mendapatkan token ya29 anda secara manual.</p>
                 </div>
             </div>
             
