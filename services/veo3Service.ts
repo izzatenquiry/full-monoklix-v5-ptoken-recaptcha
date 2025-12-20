@@ -1,6 +1,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { executeProxiedRequest } from './apiClient';
+import { requestRecaptchaToken, cacheRecaptchaToken, getCachedRecaptchaToken } from './recaptchaService';
 
 interface Veo3Config {
   authToken: string;
@@ -8,7 +9,7 @@ interface Veo3Config {
   seed?: number;
   useStandardModel?: boolean;
   serverUrl?: string;
-  recaptchaToken?: string; // **NEW**: Optional reCAPTCHA token
+  recaptchaToken?: string;
 }
 
 interface VideoGenerationRequest {
@@ -21,185 +22,96 @@ export const generateVideoWithVeo3 = async (
     request: VideoGenerationRequest,
     onStatusUpdate?: (status: string) => void,
     isHealthCheck = false
-): Promise<{ operations: any[]; successfulToken: string; successfulServerUrl: string; requiresRecaptcha?: boolean }> => {
-  console.log('🎬 [VEO Service] Preparing generateVideoWithVeo3 request...');
+): Promise<{ operations: any[]; successfulToken: string; successfulServerUrl: string }> => {
   const { prompt, imageMediaId, config } = request;
   const isImageToVideo = !!imageMediaId;
 
-  // DEBUG LOGGING
-  if (config.authToken) {
-      console.log(`🔑 [VEO Service] Using Auth Token (Personal): ...${config.authToken.slice(-8)}`);
-  } else {
-      console.warn(`⚠️ [VEO Service] No Auth Token provided in config!`);
-  }
-
   let videoModelKey: string;
-  
   if (isImageToVideo) {
-    videoModelKey = config.aspectRatio === 'landscape'
-      ? 'veo_3_1_i2v_s_fast_ultra'
-      : 'veo_3_1_i2v_s_fast_portrait_ultra';
+    videoModelKey = config.aspectRatio === 'landscape' ? 'veo_3_1_i2v_s_fast_ultra' : 'veo_3_1_i2v_s_fast_portrait_ultra';
   } else {
-    videoModelKey = config.aspectRatio === 'landscape'
-      ? 'veo_3_1_t2v_fast_ultra'
-      : 'veo_3_1_t2v_fast_portrait_ultra';
+    videoModelKey = config.aspectRatio === 'landscape' ? 'veo_3_1_t2v_fast_ultra' : 'veo_3_1_t2v_fast_portrait_ultra';
   }
-
-  const aspectRatioValue = config.aspectRatio === 'landscape'
-    ? 'VIDEO_ASPECT_RATIO_LANDSCAPE'
-    : 'VIDEO_ASPECT_RATIO_PORTRAIT';
 
   const seed = config.seed || Math.floor(Math.random() * 2147483647);
-  const sceneId = uuidv4();
-
   const requestBody: any = {
-    clientContext: {
-      tool: 'PINHOLE',
-      userPaygateTier: 'PAYGATE_TIER_TWO'
-    },
+    clientContext: { tool: 'PINHOLE', userPaygateTier: 'PAYGATE_TIER_TWO' },
     requests: [{
-      aspectRatio: aspectRatioValue,
+      aspectRatio: config.aspectRatio === 'landscape' ? 'VIDEO_ASPECT_RATIO_LANDSCAPE' : 'VIDEO_ASPECT_RATIO_PORTRAIT',
       seed: seed,
       textInput: { prompt },
       videoModelKey: videoModelKey,
-      metadata: { sceneId: sceneId }
+      metadata: { sceneId: uuidv4() }
     }]
   };
 
-  if (imageMediaId) {
-    requestBody.requests[0].startImage = { mediaId: imageMediaId };
+  if (imageMediaId) requestBody.requests[0].startImage = { mediaId: imageMediaId };
+
+  // reCAPTCHA Cache Check (Logic from your files)
+  const cacheKey = `recaptcha_${config.authToken || 'default'}`;
+  let token = config.recaptchaToken || getCachedRecaptchaToken(cacheKey);
+
+  if (token) {
+    requestBody.recaptchaToken = token;
   }
 
-  // **NEW**: Add recaptcha token to request body if provided
-  if (config.recaptchaToken) {
-    requestBody.recaptchaToken = config.recaptchaToken;
-    console.log(`🔒 [VEO Service] Attaching reCAPTCHA Token to body: ...${config.recaptchaToken.slice(0, 10)}...`);
-  }
-
-  console.log('🎬 [VEO Service] Constructed T2V/I2V request body. Sending to API client.');
   const relativePath = isImageToVideo ? '/generate-i2v' : '/generate-t2v';
-  
-  const logContext = isHealthCheck
-    ? (isImageToVideo ? 'VEO I2V HEALTH CHECK' : 'VEO T2V HEALTH CHECK')
-    : (isImageToVideo ? 'VEO I2V GENERATE' : 'VEO T2V GENERATE');
   
   try {
     const { data, successfulToken, successfulServerUrl } = await executeProxiedRequest(
       relativePath,
       'veo',
       requestBody,
-      logContext,
+      isHealthCheck ? 'VEO HEALTH' : 'VEO GENERATE',
       config.authToken, 
       onStatusUpdate,
       config.serverUrl
     );
     
-    console.log('🎬 [VEO Service] Received operations from API client:', data.operations?.length || 0);
-    return { 
-      operations: data.operations || [], 
-      successfulToken, 
-      successfulServerUrl,
-      requiresRecaptcha: false
-    };
+    return { operations: data.operations || [], successfulToken, successfulServerUrl };
   } catch (error: any) {
-    // **NEW**: Check if error is recaptcha-related
     const errorMsg = error.message || '';
-    if (errorMsg.includes('RECAPTCHA_REQUIRED') || 
-        errorMsg.includes('403') ||
-        errorMsg.toLowerCase().includes('recaptcha') ||
-        errorMsg.toLowerCase().includes('verification')) {
-      console.warn('🔐 [VEO Service] Server returned 403/Recaptcha Required. Triggering verification flow.');
-      return {
-        operations: [],
-        successfulToken: config.authToken || '',
-        successfulServerUrl: config.serverUrl || '',
-        requiresRecaptcha: true
-      };
+    
+    // Check for RECAPTCHA_REQUIRED (Status 403 or specific string)
+    if (errorMsg.includes('RECAPTCHA_REQUIRED') || error.status === 403) {
+      console.warn('🔐 Google Security Check Triggered. Requesting fresh token...');
+      if (onStatusUpdate) onStatusUpdate('Security verification required...');
+      
+      try {
+        // Trigger the manual/silent reCAPTCHA flow matching your PINHOLE_GENERATE logic
+        const newToken = await requestRecaptchaToken();
+        cacheRecaptchaToken(cacheKey, newToken);
+        
+        // Retry logic exactly like in your provided files
+        requestBody.recaptchaToken = newToken;
+        if (onStatusUpdate) onStatusUpdate('Verification successful. Retrying...');
+        
+        const retry = await executeProxiedRequest(
+          relativePath, 'veo', requestBody, 'VEO RETRY', 
+          config.authToken, onStatusUpdate, config.serverUrl
+        );
+        return { operations: retry.data.operations || [], successfulToken: retry.successfulToken, successfulServerUrl: retry.successfulServerUrl };
+      } catch (recaptchaErr) {
+          console.error('Security verification failed:', recaptchaErr);
+          throw new Error('Security verification failed or was cancelled.');
+      }
     }
     throw error;
   }
 };
 
-export const checkVideoStatus = async (
-    operations: any[], 
-    token: string, 
-    onStatusUpdate?: (status: string) => void,
-    serverUrl?: string
-) => {
-  const payload = { operations };
-
-  const { data } = await executeProxiedRequest(
-    '/status',
-    'veo',
-    payload,
-    'VEO STATUS',
-    token,
-    onStatusUpdate,
-    serverUrl
-  );
-  
-  if (data.operations && data.operations.length > 0) {
-    data.operations.forEach((op: any, idx: number) => {
-      console.log(`📊 Operation ${idx + 1} status:`, {
-        status: op.status,
-        hasResult: !!(op.result?.generatedVideo || op.result?.generatedVideos),
-        hasError: !!op.error,
-        operationName: op.name || op.operation?.name
-      });
-    });
-  }
-
+export const checkVideoStatus = async (operations: any[], token: string, onStatusUpdate?: (status: string) => void, serverUrl?: string) => {
+  const { data } = await executeProxiedRequest('/status', 'veo', { operations }, 'VEO STATUS', token, onStatusUpdate, serverUrl);
   return data;
 };
 
-export const uploadImageForVeo3 = async (
-  base64Image: string,
-  mimeType: string,
-  aspectRatio: 'landscape' | 'portrait',
-  onStatusUpdate?: (status: string) => void,
-  authToken?: string,
-  serverUrl?: string
-): Promise<{ mediaId: string; successfulToken: string; successfulServerUrl: string }> => {
-  console.log(`📤 [VEO Service] Preparing to upload image for VEO. MimeType: ${mimeType}`);
-  
-  if (authToken) {
-      console.log(`🔑 [VEO Upload] Using Auth Token: ...${authToken.slice(-8)}`);
-  }
-
-  const imageAspectRatioEnum = aspectRatio === 'landscape' 
-    ? 'IMAGE_ASPECT_RATIO_LANDSCAPE' 
-    : 'IMAGE_ASPECT_RATIO_PORTRAIT';
-
+export const uploadImageForVeo3 = async (base64Image: string, mimeType: string, aspectRatio: 'landscape' | 'portrait', onStatusUpdate?: (status: string) => void, authToken?: string, serverUrl?: string): Promise<{ mediaId: string; successfulToken: string; successfulServerUrl: string }> => {
   const requestBody = {
-    imageInput: {
-      rawImageBytes: base64Image,
-      mimeType: mimeType,
-      isUserUploaded: true,
-      aspectRatio: imageAspectRatioEnum
-    },
-    clientContext: {
-      sessionId: uuidv4(),
-      tool: 'ASSET_MANAGER'
-    }
+    imageInput: { rawImageBytes: base64Image, mimeType: mimeType, isUserUploaded: true, aspectRatio: aspectRatio === 'landscape' ? 'IMAGE_ASPECT_RATIO_LANDSCAPE' : 'IMAGE_ASPECT_RATIO_PORTRAIT' },
+    clientContext: { sessionId: uuidv4(), tool: 'ASSET_MANAGER' }
   };
-
-  const { data, successfulToken, successfulServerUrl } = await executeProxiedRequest(
-    '/upload',
-    'veo',
-    requestBody,
-    'VEO UPLOAD',
-    authToken,
-    onStatusUpdate,
-    serverUrl
-  );
-
+  const { data, successfulToken, successfulServerUrl } = await executeProxiedRequest('/upload', 'veo', requestBody, 'VEO UPLOAD', authToken, onStatusUpdate, serverUrl);
   const mediaId = data.mediaGenerationId?.mediaGenerationId || data.mediaId;
-  
-  if (!mediaId) {
-    console.error('❌ No mediaId in response:', JSON.stringify(data, null, 2));
-    throw new Error('Upload succeeded but no mediaId returned');
-  }
-  
-  console.log(`📤 [VEO Service] Image upload successful. Media ID: ${mediaId} with token ...${successfulToken.slice(-6)}`);
+  if (!mediaId) throw new Error('Upload failed: No mediaId returned');
   return { mediaId, successfulToken, successfulServerUrl };
 };

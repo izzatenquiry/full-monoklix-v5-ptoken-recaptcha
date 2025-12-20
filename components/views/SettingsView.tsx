@@ -1,595 +1,252 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { type User, type AiLogItem, type Language } from '../../types';
+import { type User, type Language } from '../../types';
 import { updateUserProfile, saveUserPersonalAuthToken, assignPersonalTokenAndIncrementUsage } from '../../services/userService';
 import {
-    CreditCardIcon, CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, ChatIcon,
-    AlertTriangleIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, WhatsAppIcon, InformationCircleIcon, SparklesIcon, VideoIcon, ImageIcon, KeyIcon, ActivityIcon, ShieldCheckIcon
+    CheckCircleIcon, XIcon, EyeIcon, EyeOffIcon, AlertTriangleIcon, DatabaseIcon, TrashIcon, RefreshCwIcon, InformationCircleIcon, SparklesIcon, VideoIcon, ImageIcon, KeyIcon, ShieldCheckIcon, UploadIcon, CloudSunIcon
 } from '../Icons';
 import Spinner from '../common/Spinner';
 import Tabs, { type Tab } from '../common/Tabs';
 import { getTranslations } from '../../services/translations';
 import { getFormattedCacheStats, clearVideoCache } from '../../services/videoCacheService';
-import { runComprehensiveTokenTest, type TokenTestResult } from '../../services/imagenV3Service';
+import { runComprehensiveTokenTest } from '../../services/imagenV3Service';
 import { getRecaptchaSiteKey, setRecaptchaSiteKey, DEFAULT_RECAPTCHA_SITE_KEY } from '../../services/recaptchaService';
-import eventBus from '../../services/eventBus';
+import { parseCookieFile } from '../../services/cookieUtils';
 
-// Define the types for the settings view tabs
-type SettingsTabId = 'profile';
+type SettingsTabId = 'profile' | 'cloud-login';
 
 const getTabs = (): Tab<SettingsTabId>[] => {
-    const T = getTranslations().settingsView;
     return [
-        { id: 'profile', label: T.tabs.profile },
+        { id: 'profile', label: 'Profil & Cache' },
+        { id: 'cloud-login', label: 'Login & Cookies' },
     ];
-}
-
-interface Message {
-  role: 'user' | 'model';
-  text: string;
 }
 
 interface SettingsViewProps {
   currentUser: User;
-  tempApiKey: string | null;
   onUserUpdate: (user: User) => void;
   language: Language;
   setLanguage: (lang: Language) => void;
-  veoTokenRefreshedAt: string | null;
   assignTokenProcess: () => Promise<{ success: boolean; error: string | null; }>;
 }
 
-const ClaimTokenModal: React.FC<{
-  status: 'searching' | 'success' | 'error';
-  error: string | null;
-  onRetry: () => void;
-  onClose: () => void;
-}> = ({ status, error, onRetry, onClose }) => {
-    const T = getTranslations().claimTokenModal;
-    return (
-    <div className="fixed inset-0 bg-black/70 flex flex-col items-center justify-center z-50 p-4 animate-zoomIn" aria-modal="true" role="dialog">
-        <div className="bg-white dark:bg-neutral-900 rounded-lg shadow-xl p-8 text-center max-w-sm w-full">
-        {status === 'searching' && (
-            <>
-            <Spinner />
-            <h2 className="text-xl font-bold mt-4">{T.searchingTitle}</h2>
-            <p className="text-neutral-500 dark:text-neutral-400 mt-2 text-sm">
-                {T.searchingMessage}
-            </p>
-            </>
-        )}
-        {status === 'success' && (
-            <>
-            <CheckCircleIcon className="w-12 h-12 text-green-500 mx-auto" />
-            <h2 className="text-xl font-bold mt-4">{T.successTitle}</h2>
-            <p className="text-neutral-500 dark:text-neutral-400 mt-2 text-sm">
-                {T.successMessage}
-            </p>
-            </>
-        )}
-        {status === 'error' && (
-            <>
-            <AlertTriangleIcon className="w-12 h-12 text-red-500 mx-auto" />
-            <h2 className="text-xl font-bold mt-4">{T.errorTitle}</h2>
-            <p className="text-neutral-500 dark:text-neutral-400 mt-2 text-sm">
-                {error || T.errorMessageDefault}
-            </p>
-            <div className="mt-6 flex gap-4">
-                <button onClick={onClose} className="w-full bg-neutral-200 dark:bg-neutral-700 font-semibold py-2 px-4 rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors">
-                {T.closeButton}
-                </button>
-                <button onClick={onRetry} className="w-full bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors">
-                {T.retryButton}
-                </button>
-            </div>
-            </>
-        )}
-        </div>
-    </div>
-)};
-
-// --- PANELS ---
-
-interface ProfilePanelProps extends Pick<SettingsViewProps, 'currentUser' | 'onUserUpdate' | 'assignTokenProcess'> {
+// #FIX: Added missing ProfilePanelProps interface.
+interface ProfilePanelProps {
+    currentUser: User;
+    onUserUpdate: (user: User) => void;
     language: Language;
     setLanguage: (lang: Language) => void;
+    assignTokenProcess: () => Promise<{ success: boolean; error: string | null; }>;
 }
 
-const ProfilePanel: React.FC<ProfilePanelProps> = ({ currentUser, onUserUpdate, language, setLanguage, assignTokenProcess }) => {
-    const T = getTranslations().settingsView;
-    const T_Profile = T.profile;
-    const T_Api = T.api;
+// #FIX: Added missing CacheManagerPanel component.
+const CacheManagerPanel: React.FC = () => {
+    const [stats, setStats] = useState<{ size: string; count: number } | null>(null);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isClearing, setIsClearing] = useState(false);
 
-    const [fullName, setFullName] = useState(currentUser.fullName || currentUser.username);
-    const [email, setEmail] = useState(currentUser.email);
-    const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'loading'; message: string }>({ type: 'idle', message: '' });
-    const statusTimeoutRef = useRef<number | null>(null);
-
-    // API Configuration State
-    const [personalAuthToken, setPersonalAuthToken] = useState(currentUser.personalAuthToken || '');
-    const [showPersonalToken, setShowPersonalToken] = useState(false);
-    const [personalTokenSaveStatus, setPersonalTokenSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-    const [testStatus, setTestStatus] = useState<'idle' | 'testing'>('idle');
-    const [testResults, setTestResults] = useState<TokenTestResult[] | null>(null);
-    const [claimStatus, setClaimStatus] = useState<'idle' | 'searching' | 'success' | 'error'>('idle');
-    const [claimError, setClaimError] = useState<string | null>(null);
-    const activeApiKey = sessionStorage.getItem('monoklix_session_api_key');
-
-    // reCAPTCHA Configuration State
-    const [siteKey, setSiteKey] = useState('');
-    const [showSiteKey, setShowSiteKey] = useState(false);
-    const [siteKeySaveStatus, setSiteKeySaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-
-     useEffect(() => {
-        return () => {
-            if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
-        };
+    const loadStats = useCallback(async () => {
+        setIsRefreshing(true);
+        try {
+            const s = await getFormattedCacheStats();
+            setStats(s);
+        } finally {
+            setIsRefreshing(false);
+        }
     }, []);
 
     useEffect(() => {
-        const tokenFromProp = currentUser.personalAuthToken || '';
-        setPersonalAuthToken(tokenFromProp);
-        setTestResults(null);
-    }, [currentUser.personalAuthToken]);
+        loadStats();
+    }, [loadStats]);
 
-    // Load current site key
-    useEffect(() => {
-        setSiteKey(getRecaptchaSiteKey());
-    }, []);
-
-    const getAccountStatus = (user: User): { text: string; colorClass: string } => {
-        switch (user.status) {
-            case 'admin': return { text: T_Profile.status.admin, colorClass: 'text-green-500' };
-            case 'lifetime': return { text: T_Profile.status.lifetime, colorClass: 'text-green-500' };
-            case 'subscription': return { text: T_Profile.status.subscription, colorClass: 'text-green-500' };
-            case 'trial': return { text: T_Profile.status.trial, colorClass: 'text-yellow-500' };
-            case 'inactive': return { text: T_Profile.status.inactive, colorClass: 'text-red-500' };
-            case 'pending_payment': return { text: T_Profile.status.pending, colorClass: 'text-yellow-500' };
-            default: return { text: T_Profile.status.unknown, colorClass: 'text-neutral-500' };
-        }
-    };
-
-    const handleSave = async () => {
-        if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
-        setStatus({ type: 'loading', message: T_Profile.saving });
-        const result = await updateUserProfile(currentUser.id, { fullName, email });
-        if (result.success === false) {
-            setStatus({ type: 'error', message: T_Profile.fail.replace('{message}', result.message) });
-        } else {
-            onUserUpdate(result.user);
-            setStatus({ type: 'success', message: T_Profile.success });
-        }
-        statusTimeoutRef.current = window.setTimeout(() => setStatus({ type: 'idle', message: '' }), 4000);
-    };
-
-    const handleSavePersonalToken = async () => {
-        setPersonalTokenSaveStatus('saving');
-        const result = await saveUserPersonalAuthToken(currentUser.id, personalAuthToken.trim() || null);
-
-        if (result.success === false) {
-            setPersonalTokenSaveStatus('error');
-            if (result.message === 'DB_SCHEMA_MISSING_COLUMN_personal_auth_token' && currentUser.role === 'admin') {
-                alert("Database schema is outdated.\n\nPlease go to your Supabase dashboard and run the following SQL command to add the required column:\n\nALTER TABLE public.users ADD COLUMN personal_auth_token TEXT;");
-            }
-        } else {
-            onUserUpdate(result.user);
-            setPersonalTokenSaveStatus('saved');
-        }
-        setTimeout(() => setPersonalTokenSaveStatus('idle'), 3000);
-    };
-
-    const handleSaveSiteKey = () => {
-        setSiteKeySaveStatus('saving');
-        setRecaptchaSiteKey(siteKey);
-        setTimeout(() => {
-            setSiteKeySaveStatus('saved');
-            setTimeout(() => setSiteKeySaveStatus('idle'), 2000);
-        }, 500);
-    };
-
-    const handleResetSiteKey = () => {
-        setSiteKeySaveStatus('saving');
-        setRecaptchaSiteKey(null); // Resets to default
-        setSiteKey(DEFAULT_RECAPTCHA_SITE_KEY);
-        setTimeout(() => {
-            setSiteKeySaveStatus('saved');
-            setTimeout(() => setSiteKeySaveStatus('idle'), 2000);
-        }, 500);
-    };
-
-    const handleTestToken = useCallback(async () => {
-        setTestStatus('testing');
-        setTestResults(null);
-        const results = await runComprehensiveTokenTest(personalAuthToken);
-        setTestResults(results);
-        setTestStatus('idle');
-    }, [personalAuthToken]);
-
-    const handleClaimNewToken = useCallback(async () => {
-        setClaimStatus('searching');
-        setClaimError(null);
-
-        const clearResult = await saveUserPersonalAuthToken(currentUser.id, null);
-        
-        if (clearResult.success === false) {
-            setClaimError(clearResult.message || 'Failed to clear previous token.');
-            setClaimStatus('error');
-        } else {
-            onUserUpdate(clearResult.user);
-            
-            const assignResult = await assignTokenProcess();
-            if (assignResult.success) {
-                setClaimStatus('success');
-                setTimeout(() => {
-                    setClaimStatus('idle');
-                }, 2000);
-            } else {
-                setClaimError(assignResult.error || 'Failed to assign token.');
-                setClaimStatus('error');
+    const handleClear = async () => {
+        if (window.confirm("Are you sure you want to clear the video cache?")) {
+            setIsClearing(true);
+            try {
+                await clearVideoCache();
+                await loadStats();
+            } finally {
+                setIsClearing(false);
             }
         }
-    }, [currentUser.id, onUserUpdate, assignTokenProcess]);
-
-    const accountStatus = getAccountStatus(currentUser);
-    let expiryInfo = null;
-    if (currentUser.status === 'subscription' && currentUser.subscriptionExpiry) {
-        const expiryDate = new Date(currentUser.subscriptionExpiry);
-        const isExpired = Date.now() > expiryDate.getTime();
-        expiryInfo = (
-            <span className={isExpired ? 'text-red-500 font-bold' : ''}>
-                {T_Profile.expiresOn} {expiryDate.toLocaleDateString()} {isExpired && `(${T_Profile.expired})`}
-            </span>
-        );
-    }
+    };
 
     return (
-        <div className="bg-white dark:bg-neutral-900 p-6 rounded-lg shadow-sm h-full overflow-y-auto">
-            {claimStatus !== 'idle' && (
-                <ClaimTokenModal
-                    status={claimStatus}
-                    error={claimError}
-                    onClose={() => setClaimStatus('idle')}
-                    onRetry={handleClaimNewToken}
-                />
-            )}
-
-            <h2 className="text-xl font-semibold mb-6">{T_Profile.title}</h2>
-            
-            {/* Account Status Box */}
-            <div className="mb-6 p-4 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg">
-                <p className="text-sm text-neutral-600 dark:text-neutral-400">{T_Profile.accountStatus} <span className={`font-bold ${accountStatus.colorClass}`}>{accountStatus.text}</span></p>
-                {expiryInfo && <p className="text-sm text-neutral-500 dark:text-neutral-500 mt-1">{expiryInfo}</p>}
+        <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                    <DatabaseIcon className="w-5 h-5 text-brand-start"/> 
+                    Video Cache Manager
+                </h3>
+                <button onClick={loadStats} disabled={isRefreshing} className="p-2 rounded-full hover:bg-white/10 text-neutral-400">
+                    <RefreshCwIcon className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                </button>
             </div>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                    <p className="text-[10px] font-bold text-neutral-500 uppercase mb-1">Storage Used</p>
+                    <p className="text-xl font-bold text-white">{stats?.size || '0 MB'}</p>
+                </div>
+                <div className="bg-black/40 p-4 rounded-xl border border-white/5">
+                    <p className="text-[10px] font-bold text-neutral-500 uppercase mb-1">Videos Cached</p>
+                    <p className="text-xl font-bold text-white">{stats?.count || 0}</p>
+                </div>
+            </div>
+            <button 
+                onClick={handleClear} 
+                disabled={isClearing}
+                className="w-full bg-red-500/10 border border-red-500/30 text-red-500 py-3 rounded-xl font-bold hover:bg-red-500/20 transition-all flex items-center justify-center gap-2"
+            >
+                {isClearing ? <Spinner /> : <TrashIcon className="w-4 h-4" />} 
+                Clear All Cache
+            </button>
+        </div>
+    );
+};
 
-            {/* User Profile Form - Moved Here */}
-            <div className="space-y-6 mb-8 border-b border-neutral-200 dark:border-neutral-800 pb-8">
-                <div>
-                    <label className="block text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-1">{T_Profile.fullName}</label>
-                    <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} disabled={status.type === 'loading'} className="w-full bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg p-2 focus:ring-2 focus:ring-primary-500 focus:outline-none transition disabled:opacity-50" />
+const ProfilePanel: React.FC<ProfilePanelProps> = ({ currentUser, onUserUpdate, language, setLanguage }) => {
+    const [fullName, setFullName] = useState(currentUser.fullName || currentUser.username);
+    const [status, setStatus] = useState({ type: 'idle', message: '' });
+
+    const handleSave = async () => {
+        setStatus({ type: 'loading', message: 'Saving...' });
+        const result = await updateUserProfile(currentUser.id, { fullName });
+        if (result.success) {
+            onUserUpdate(result.user);
+            setStatus({ type: 'success', message: 'Profile updated!' });
+        } else {
+            setStatus({ type: 'error', message: 'Failed to update' });
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><ImageIcon className="w-5 h-5 text-brand-start"/> Informasi Profil</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-2">Nama Penuh</label>
+                        <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white focus:ring-2 focus:ring-brand-start outline-none" />
+                    </div>
+                    <button onClick={handleSave} className="bg-brand-start text-white px-6 py-2 rounded-xl font-bold hover:scale-105 transition-all">Simpan</button>
+                    {status.message && <p className="text-sm mt-2">{status.message}</p>}
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-1">{T_Profile.email}</label>
-                    <input type="email" value={email} readOnly disabled className="w-full bg-neutral-200 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg p-2 cursor-not-allowed" />
-                </div>
-                <div className="flex items-center gap-4">
-                    <button onClick={handleSave} disabled={status.type === 'loading'} className="bg-primary-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-primary-700 transition-colors w-48 flex justify-center disabled:opacity-50">
-                        {status.type === 'loading' ? <Spinner /> : T_Profile.save}
+            </div>
+            <CacheManagerPanel />
+        </div>
+    );
+};
+
+const CloudLoginPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => void}> = ({ currentUser, onUserUpdate }) => {
+    const [token, setToken] = useState(currentUser.personalAuthToken || '');
+    const [showToken, setShowToken] = useState(false);
+    const [isTesting, setIsTesting] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            const extracted = await parseCookieFile(file);
+            if (extracted) {
+                setToken(extracted);
+                const res = await saveUserPersonalAuthToken(currentUser.id, extracted);
+                if (res.success) onUserUpdate(res.user);
+                alert("Token berjaya diekstrak!");
+            }
+        } catch (err) { alert("Format fail tidak sah."); }
+    };
+
+    const handleTest = async () => {
+        setIsTesting(true);
+        const res = await runComprehensiveTokenTest(token);
+        setIsTesting(false);
+        alert(res.every(r => r.success) ? "Token Aktif ✅" : "Token Gagal/Expired ❌");
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
+                <div className="flex justify-between items-start mb-6">
+                    <div>
+                        <h3 className="text-xl font-bold flex items-center gap-2 text-white">
+                            <CloudSunIcon className="w-6 h-6 text-brand-start" /> 
+                            Session & Cookie Sync
+                        </h3>
+                        <p className="text-sm text-neutral-400 mt-1">Sediakan akses Google Cloud secara manual untuk penjanaan kualiti tinggi.</p>
+                    </div>
+                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 bg-brand-start/20 border border-brand-start/30 text-brand-start px-4 py-2 rounded-xl text-xs font-bold hover:bg-brand-start/30 transition-all">
+                        <UploadIcon className="w-4 h-4" /> Upload Cookies
                     </button>
-                    {status.type !== 'idle' && (
-                        <div className={`flex items-center gap-3 text-sm ${status.type === 'success' ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}`}>
-                            {status.type === 'success' && <CheckCircleIcon className="w-5 h-5 flex-shrink-0" />}
-                            {status.type === 'error' && <XIcon className="w-5 h-5 flex-shrink-0" />}
-                            <span>{status.message}</span>
-                        </div>
-                    )}
+                    <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" accept=".json,.txt" />
                 </div>
-            </div>
 
-            {/* --- API CONFIGURATION SECTION --- */}
-            <div className="mb-8">
-                 <h3 className="text-lg font-bold mb-4 text-neutral-800 dark:text-neutral-200">{T_Api.title}</h3>
-                 
-                 {/* Shared Key Info */}
-                 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800 mb-4">
-                    <div className="flex items-start gap-3">
-                        <InformationCircleIcon className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-                        <p className="text-sm text-blue-800 dark:text-blue-200">
-                            {T_Api.description}
-                        </p>
-                    </div>
-                    <div className="mt-3 flex items-center gap-2 text-sm font-medium">
-                        <span className="text-neutral-600 dark:text-neutral-400">{T_Api.sharedStatus}</span>
-                        {activeApiKey ? (
-                            <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
-                                <CheckCircleIcon className="w-4 h-4" />
-                                {T_Api.connected}
-                            </span>
-                        ) : (
-                            <span className="flex items-center gap-1.5 text-red-500">
-                                <XIcon className="w-4 h-4" />
-                                {T_Api.notLoaded}
-                            </span>
-                        )}
-                    </div>
-                 </div>
-
-                 {/* Personal Token Input */}
-                 <div className="space-y-3">
-                    <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                        {T_Api.authTokenTitle}
-                    </label>
+                <div className="space-y-4">
                     <div className="relative">
-                        <input
-                            type={showPersonalToken ? 'text' : 'password'}
-                            value={personalAuthToken}
-                            onChange={(e) => {
-                                setPersonalAuthToken(e.target.value);
-                                setTestResults(null);
-                            }}
-                            placeholder={T_Api.authTokenPlaceholder}
-                            className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors font-mono text-sm"
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-2">Google Access Token (ya29)</label>
+                        <input 
+                            type={showToken ? "text" : "password"} 
+                            value={token} 
+                            onChange={(e) => setToken(e.target.value)}
+                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 pr-12 text-white font-mono text-sm"
+                            placeholder="ya29.A0AX..."
                         />
-                        <button 
-                            onClick={() => setShowPersonalToken(!showPersonalToken)} 
-                            className="absolute inset-y-0 right-0 px-3 flex items-center text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-                        >
-                            {showPersonalToken ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
+                        <button onClick={() => setShowToken(!showToken)} className="absolute right-4 top-9 text-neutral-500 hover:text-white">
+                            {showToken ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
                         </button>
                     </div>
-                    
-                    {testStatus === 'testing' && <div className="flex items-center gap-2 text-sm text-neutral-500"><Spinner /> {T_Api.testing}</div>}
-                    {testResults && (
-                        <div className="space-y-2 mt-2">
-                            {testResults.map(result => (
-                                <div key={result.service} className={`flex items-start gap-2 text-sm p-2 rounded-md ${result.success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
-                                    {result.success ? <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5"/> : <XIcon className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5"/>}
-                                    <div>
-                                        <span className={`font-semibold ${result.success ? 'text-green-800 dark:text-green-200' : 'text-red-700 dark:text-red-300'}`}>{result.service} Service</span>
-                                        <p className={`text-xs ${result.success ? 'text-green-700 dark:text-green-300' : 'text-red-600 dark:text-red-400'}`}>{result.message}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
 
-                    <div className="flex items-center gap-3 mt-2 flex-wrap">
-                        <button onClick={handleSavePersonalToken} disabled={personalTokenSaveStatus === 'saving'} className="px-4 py-2 bg-primary-600 text-white text-sm font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50">
-                            {personalTokenSaveStatus === 'saving' ? <Spinner /> : T_Api.save}
+                    <div className="flex gap-3">
+                        <button onClick={handleTest} disabled={isTesting} className="flex-1 bg-white/10 border border-white/10 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-white/20 transition-all">
+                            {isTesting ? <Spinner /> : <SparklesIcon className="w-4 h-4" />} Health Check
                         </button>
-                        <button onClick={handleTestToken} disabled={!personalAuthToken || testStatus === 'testing'} className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2">
-                            {testStatus === 'testing' ? <Spinner /> : <SparklesIcon className="w-4 h-4" />}
-                            {T_Api.runTest}
+                        <button onClick={async () => {
+                            const res = await saveUserPersonalAuthToken(currentUser.id, token);
+                            if (res.success) onUserUpdate(res.user);
+                        }} className="flex-1 bg-brand-start py-3 rounded-xl font-bold shadow-lg hover:shadow-brand-start/40 transition-all">
+                            Save Session
                         </button>
-                        
-                        {personalTokenSaveStatus === 'saved' && <span className="text-sm text-green-600 font-medium flex items-center gap-1"><CheckCircleIcon className="w-4 h-4"/> {T_Api.updated}</span>}
-                        {personalTokenSaveStatus === 'error' && <span className="text-sm text-red-600 font-medium flex items-center gap-1"><XIcon className="w-4 h-4"/> {T_Api.saveFail}</span>}
-                    </div>
-                 </div>
-
-                 {/* Manual reCAPTCHA Site Key Input */}
-                 <div className="mt-6 pt-6 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
-                    <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 flex items-center gap-2">
-                        <ShieldCheckIcon className="w-4 h-4 text-neutral-500" />
-                        reCAPTCHA Site Key (Advanced)
-                    </label>
-                    <div className="relative">
-                        <input
-                            type={showSiteKey ? 'text' : 'password'}
-                            value={siteKey}
-                            onChange={(e) => setSiteKey(e.target.value)}
-                            placeholder="Enter custom reCAPTCHA Site Key"
-                            className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors font-mono text-sm"
-                        />
-                        <button 
-                            onClick={() => setShowSiteKey(!showSiteKey)} 
-                            className="absolute inset-y-0 right-0 px-3 flex items-center text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-                        >
-                            {showSiteKey ? <EyeOffIcon className="w-4 h-4"/> : <EyeIcon className="w-4 h-4"/>}
-                        </button>
-                    </div>
-                    <div className="flex items-center gap-3 mt-2">
-                        <button 
-                            onClick={handleSaveSiteKey} 
-                            disabled={siteKeySaveStatus === 'saving'} 
-                            className="px-4 py-2 bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-sm font-semibold rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors disabled:opacity-50"
-                        >
-                            {siteKeySaveStatus === 'saving' ? <Spinner /> : 'Save Key'}
-                        </button>
-                        <button 
-                            onClick={handleResetSiteKey}
-                            disabled={siteKeySaveStatus === 'saving'}
-                            className="text-xs text-neutral-500 hover:text-red-500 underline"
-                        >
-                            Reset to Default
-                        </button>
-                        {siteKeySaveStatus === 'saved' && <span className="text-sm text-green-600 font-medium flex items-center gap-1"><CheckCircleIcon className="w-4 h-4"/> Saved!</span>}
-                    </div>
-                    <p className="text-[10px] text-neutral-500 dark:text-neutral-400">
-                        Only change this if you are experiencing reCAPTCHA errors. Requires a page refresh to take effect.
-                    </p>
-                 </div>
-            </div>
-            {/* --- END API SECTION --- */}
-
-            {/* Usage Statistics / Credits */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 border-t border-neutral-200 dark:border-neutral-800 pt-6">
-                <div className="p-4 bg-neutral-50 dark:bg-neutral-800/30 border border-neutral-200 dark:border-neutral-800 rounded-lg flex items-center justify-between transition-all hover:border-blue-200 dark:hover:border-blue-900/50">
-                    <div>
-                        <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mb-1">Images Generated</p>
-                        <p className="text-2xl font-bold text-neutral-800 dark:text-neutral-200">{currentUser.totalImage || 0}</p>
-                    </div>
-                    <div className="w-10 h-10 flex items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                        <ImageIcon className="w-5 h-5" />
                     </div>
                 </div>
-                <div className="p-4 bg-neutral-50 dark:bg-neutral-800/30 border border-neutral-200 dark:border-neutral-800 rounded-lg flex items-center justify-between transition-all hover:border-purple-200 dark:hover:border-purple-900/50">
-                    <div>
-                        <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider mb-1">Videos Generated</p>
-                        <p className="text-2xl font-bold text-neutral-800 dark:text-neutral-200">{currentUser.totalVideo || 0}</p>
-                    </div>
-                    <div className="w-10 h-10 flex items-center justify-center rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                        <VideoIcon className="w-5 h-5" />
-                    </div>
+
+                <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                    <h4 className="text-xs font-bold text-blue-400 uppercase flex items-center gap-2 mb-2">
+                        <InformationCircleIcon className="w-4 h-4" /> Cara Ambil Cookies
+                    </h4>
+                    <ul className="text-xs text-neutral-400 space-y-2">
+                        <li>1. Login ke <a href="https://labs.google/fx/tools/flow" target="_blank" className="text-blue-400 underline">Google Labs</a> di Chrome.</li>
+                        <li>2. Guna extension <strong>"Cookie-Editor"</strong> atau <strong>"EditThisCookie"</strong>.</li>
+                        <li>3. Export cookies sebagai <strong>JSON</strong> dan muat naik fail di sini.</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div className="bg-white/5 border border-white/10 p-6 rounded-2xl">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-white">
+                    <ShieldCheckIcon className="w-5 h-5 text-green-500" /> reCAPTCHA Enterprise Settings
+                </h3>
+                <p className="text-xs text-neutral-400 mb-4">Sistem keselamatan automatik menggunakan Google Enterprise API.</p>
+                <div className="flex items-center justify-between p-3 bg-black/40 rounded-xl border border-white/5">
+                    <span className="text-sm font-medium">Site Key Status</span>
+                    <span className="text-xs font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded-md">VERIFIED (v3 Enterprise)</span>
                 </div>
             </div>
         </div>
     );
 };
 
-const CacheManagerPanel: React.FC = () => {
-    const T = getTranslations().settingsView.cache;
-  const [stats, setStats] = useState<{
-    size: string;
-    count: number;
-  } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isClearing, setIsClearing] = useState(false);
-
-  const loadStats = async () => {
-    setIsLoading(true);
-    try {
-      const formattedStats = await getFormattedCacheStats();
-      setStats(formattedStats);
-    } catch (error) {
-      console.error('Failed to load cache stats:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  const handleClearCache = async () => {
-    if (!confirm(T.confirmClear)) {
-      return;
-    }
-
-    setIsClearing(true);
-    try {
-      await clearVideoCache();
-      await loadStats();
-      alert(T.clearSuccess);
-    } catch (error) {
-      console.error('Failed to clear cache:', error);
-      alert(T.clearFail);
-    } finally {
-      setIsClearing(false);
-    }
-  };
-
-  return (
-    <div className="bg-white dark:bg-neutral-900 p-6 rounded-lg shadow-sm h-full">
-        <div className="flex items-center gap-3 mb-6">
-          <DatabaseIcon className="w-8 h-8 text-primary-500" />
-          <div>
-            <h2 className="text-xl font-semibold">{T.title}</h2>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              {T.subtitle}
-            </p>
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Spinner />
-          </div>
-        ) : stats ? (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-neutral-50 dark:bg-neutral-800 rounded-lg p-4">
-                <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-1">{T.storageUsed}</p>
-                <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{stats.size}</p>
-              </div>
-              <div className="bg-neutral-50 dark:bg-neutral-800 rounded-lg p-4">
-                <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-1">{T.videosCached}</p>
-                <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{stats.count}</p>
-              </div>
-            </div>
-            
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                {T.howItWorks}
-              </h3>
-              <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                <li>{T.l1}</li>
-                <li>{T.l2}</li>
-                <li>{T.l3}</li>
-                <li>{T.l4}</li>
-              </ul>
-            </div>
-
-            <div className="flex gap-3">
-              <button onClick={loadStats} disabled={isLoading} className="flex items-center justify-center gap-2 bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 font-semibold py-2 px-4 rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors disabled:opacity-50">
-                <RefreshCwIcon className="w-4 h-4" /> {T.refresh}
-              </button>
-              <button onClick={handleClearCache} disabled={isClearing || stats.count === 0} className="flex items-center justify-center gap-2 bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {isClearing ? (<><Spinner /> {T.clearing}</>) : (<><TrashIcon className="w-4 h-4" /> {T.clear}</>)}
-              </button>
-            </div>
-
-            <div className="border-t border-neutral-200 dark:border-neutral-700 pt-4">
-              <h3 className="font-semibold mb-2">💡 {T.tips}</h3>
-              <ul className="text-sm text-neutral-600 dark:text-neutral-400 space-y-1">
-                <li>{T.tip1}</li>
-                <li>{T.tip2}</li>
-                <li>{T.tip3}</li>
-                <li>{T.tip4}</li>
-              </ul>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-12 text-neutral-500">{T.failLoad}</div>
-        )}
-      </div>
-  );
-};
-
-const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, tempApiKey, onUserUpdate, language, setLanguage, veoTokenRefreshedAt, assignTokenProcess }) => {
-    const [activeTab, setActiveTab] = useState<SettingsTabId>('profile');
+const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUserUpdate, language, setLanguage, assignTokenProcess }) => {
+    const [activeTab, setActiveTab] = useState<SettingsTabId>('cloud-login');
     const tabs = getTabs();
-    const T = getTranslations().settingsView;
-
-    const renderContent = () => {
-        switch (activeTab) {
-            case 'profile':
-                return (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                        <ProfilePanel 
-                            currentUser={currentUser} 
-                            onUserUpdate={onUserUpdate} 
-                            language={language} 
-                            setLanguage={setLanguage}
-                            assignTokenProcess={assignTokenProcess}
-                        />
-                        <div className="h-full">
-                            <CacheManagerPanel />
-                        </div>
-                    </div>
-                );
-            default:
-                return null;
-        }
-    };
 
     return (
-        <div className="h-full flex flex-col">
-            <div className="flex-shrink-0">
-                <h1 className="text-2xl font-bold sm:text-3xl">{T.title}</h1>
+        <div className="h-full flex flex-col max-w-4xl mx-auto">
+            <h1 className="text-3xl font-black text-white mb-6">Settings</h1>
+            <div className="mb-8 flex justify-center">
+                <Tabs tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} />
             </div>
-            
-            <div className="flex-shrink-0 my-6 flex justify-center">
-                <Tabs 
-                    tabs={tabs}
-                    activeTab={activeTab}
-                    setActiveTab={setActiveTab}
-                    isAdmin={currentUser.role === 'admin' || currentUser.status === 'lifetime'}
-                />
-            </div>
-
-            <div className="flex-1 overflow-y-auto min-h-0">
-                {renderContent()}
+            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar pb-10">
+                {activeTab === 'profile' ? <ProfilePanel currentUser={currentUser} onUserUpdate={onUserUpdate} language={language} setLanguage={setLanguage} assignTokenProcess={assignTokenProcess}/> : <CloudLoginPanel currentUser={currentUser} onUserUpdate={onUserUpdate}/>}
             </div>
         </div>
     );

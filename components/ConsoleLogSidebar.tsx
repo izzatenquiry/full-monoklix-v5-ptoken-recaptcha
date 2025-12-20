@@ -1,8 +1,10 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import eventBus from '../services/eventBus';
 import { XIcon, TrashIcon, TerminalIcon } from './Icons';
 import { getTranslations } from '../services/translations';
+import { type Language } from '../types';
 
 interface LogEntry {
   level: 'log' | 'warn' | 'error' | 'debug';
@@ -13,12 +15,13 @@ interface LogEntry {
 interface ConsoleLogSidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  language: Language; // Added language prop
 }
 
-const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }) => {
+const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose, language }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logContainerRef = useRef<HTMLDivElement>(null);
-  const T = getTranslations().consoleLogSidebar;
+  const T = getTranslations(language).consoleLogSidebar; // Pass language
 
   useEffect(() => {
     const handleLog = (data: LogEntry) => {
@@ -73,19 +76,20 @@ const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }
                     <div className="p-2 bg-brand-start/10 rounded-lg">
                         <TerminalIcon className="w-5 h-5 text-brand-start" />
                     </div>
-                    
+                    {T.title}
                 </h2>
                 <div className="flex gap-2">
                     <button 
                         onClick={clearLogs} 
                         className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
-                        title="Clear"
+                        title={T.clearLogs}
                     >
                         <TrashIcon className="w-4 h-4" />
                     </button>
                     <button 
                         onClick={onClose} 
                         className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-white transition-colors"
+                        title={T.closeConsole}
                     >
                         <XIcon className="w-4 h-4" />
                     </button>
@@ -106,7 +110,7 @@ const ConsoleLogSidebar: React.FC<ConsoleLogSidebarProps> = ({ isOpen, onClose }
                 {logs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center text-neutral-600">
                         <TerminalIcon className="w-12 h-12 mb-3 opacity-20" />
-                        <p className="text-xs italic">Console output will appear here.</p>
+                        <p className="text-xs italic">{T.placeholder}</p>
                     </div>
                 ) : (
                     logs.map((log, index) => (

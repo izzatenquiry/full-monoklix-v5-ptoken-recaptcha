@@ -1,3 +1,4 @@
+
 import type { ComponentType } from 'react';
 
 // FIX: Add Language type for internationalization.
@@ -152,4 +153,10 @@ export interface ViralPrompt {
   author: string;
   imageUrl: string;
   prompt: string;
+}
+
+// #FIX: Add language prop to WelcomeAnimationProps
+export interface WelcomeAnimationProps {
+  onAnimationEnd: () => void;
+  language: Language;
 }

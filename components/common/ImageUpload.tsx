@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef } from 'react';
 import { UploadIcon, TrashIcon } from '../Icons';
 import { getTranslations } from '../../services/translations';
@@ -17,13 +18,14 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
   onImageUpload, 
   onRemove,
   title,
-  description
+  description,
+  language
 }) => {
   const [preview, setPreview] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const T = getTranslations().imageUpload;
+  const T = getTranslations(language).imageUpload;
 
   const handleFileChange = useCallback((file: File | null) => {
     if (file) {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { KeyIcon, CheckCircleIcon, XIcon, AlertTriangleIcon, RefreshCwIcon, SparklesIcon, TelegramIcon, ServerIcon, ImageIcon, VideoIcon, EyeIcon, EyeOffIcon } from './Icons';
+import { KeyIcon, CheckCircleIcon, XIcon, AlertTriangleIcon, RefreshCwIcon, SparklesIcon, TelegramIcon, ServerIcon, ImageIcon, VideoIcon, EyeIcon, EyeOffIcon, UploadIcon, FileTextIcon } from './Icons';
 import Spinner from './common/Spinner';
 import { runApiHealthCheck, type HealthCheckResult } from '../services/geminiService';
 import { type User, type Language } from '../types';
@@ -8,6 +8,7 @@ import { saveUserPersonalAuthToken, assignPersonalTokenAndIncrementUsage, getUse
 import { runComprehensiveTokenTest, type TokenTestResult } from '../services/imagenV3Service';
 import { getTranslations } from '../services/translations';
 import eventBus from '../services/eventBus';
+import { parseCookieFile } from '../services/cookieUtils';
 
 // --- NEW: Token Selection Modal ---
 interface TokenSelectionModalProps {
@@ -257,6 +258,7 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
     const [isChecking, setIsChecking] = useState(false);
     const [results, setResults] = useState<HealthCheckResult[] | null>(null);
     const popoverRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     
     // New state for the robust token selection modal
     const [isTokenSelectionOpen, setIsTokenSelectionOpen] = useState(false);
@@ -275,11 +277,11 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
         }
     }, [isPopoverOpen]);
 
-    const handleHealthCheck = async () => {
+    const handleHealthCheck = async (tokenOverride?: string) => {
         setIsChecking(true);
         setResults(null);
         
-        const tokenToCheck = currentUser.personalAuthToken;
+        const tokenToCheck = tokenOverride || currentUser.personalAuthToken;
 
         if (!tokenToCheck) {
             setResults([
@@ -307,12 +309,14 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
         }
     };
 
-    const handleSaveToken = async () => {
+    const handleSaveToken = async (tokenToSave: string) => {
         setSaveStatus('saving');
-        const result = await saveUserPersonalAuthToken(currentUser.id, tokenInput.trim() || null);
+        const result = await saveUserPersonalAuthToken(currentUser.id, tokenToSave.trim() || null);
         if (result.success) {
             onUserUpdate(result.user);
             setSaveStatus('success');
+            // Auto run health check on new token
+            handleHealthCheck(tokenToSave);
             setTimeout(() => {
                 setIsEditingToken(false);
                 setSaveStatus('idle');
@@ -338,6 +342,32 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
         } finally {
             // Minimal delay to show spinner
             setTimeout(() => setIsRefreshing(false), 500);
+        }
+    };
+
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setSaveStatus('saving'); // Re-use saving state to show activity
+        
+        try {
+            const extractedToken = await parseCookieFile(file);
+            
+            if (extractedToken) {
+                setTokenInput(extractedToken);
+                await handleSaveToken(extractedToken);
+                alert("Success! Token extracted from cookies and verified.");
+            } else {
+                alert("Could not find __SESSION token in the uploaded file. Please ensure you uploaded a valid JSON cookie export or Netscape cookies.txt file.");
+                setSaveStatus('idle');
+            }
+        } catch (error) {
+            console.error("Cookie parsing error:", error);
+            alert("Error parsing cookie file.");
+            setSaveStatus('idle');
+        } finally {
+            if (event.target) event.target.value = ''; // Reset input
         }
     };
 
@@ -425,7 +455,23 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
                          <div className="p-2 bg-neutral-100 dark:bg-neutral-800 rounded-md">
                             {isEditingToken ? (
                                 <div className="space-y-2">
-                                    <span className="font-semibold text-neutral-600 dark:text-neutral-300">{T.authToken}:</span>
+                                    <div className="flex justify-between items-center">
+                                        <span className="font-semibold text-neutral-600 dark:text-neutral-300">{T.authToken}:</span>
+                                        <button 
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="text-xs flex items-center gap-1 text-primary-600 dark:text-primary-400 hover:underline"
+                                            title="Upload cookies.json or cookies.txt"
+                                        >
+                                            <UploadIcon className="w-3 h-3"/> Upload Cookies
+                                        </button>
+                                        <input 
+                                            type="file" 
+                                            ref={fileInputRef} 
+                                            onChange={handleFileUpload} 
+                                            accept=".json,.txt" 
+                                            className="hidden" 
+                                        />
+                                    </div>
                                     <div className="relative">
                                         <input 
                                             type={showPersonalToken ? "text" : "password"}
@@ -444,7 +490,7 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
                                         </button>
                                     </div>
                                     <div className="flex gap-2 items-center">
-                                        <button onClick={handleSaveToken} disabled={saveStatus === 'saving'} className="text-xs font-semibold py-1 px-3 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 w-16 text-center">
+                                        <button onClick={() => handleSaveToken(tokenInput)} disabled={saveStatus === 'saving'} className="text-xs font-semibold py-1 px-3 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50 w-16 text-center">
                                             {saveStatus === 'saving' ? <Spinner/> : T.save}
                                         </button>
                                         <button onClick={() => setIsEditingToken(false)} className="text-xs font-semibold py-1 px-3 rounded bg-neutral-200 dark:bg-neutral-600 hover:bg-neutral-300 dark:hover:bg-neutral-500">
@@ -487,7 +533,7 @@ const ApiKeyStatus: React.FC<ApiKeyStatusProps> = ({ activeApiKey, currentUser, 
                     <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-700">
                         <div className="grid grid-cols-2 gap-3">
                              <button
-                                onClick={handleHealthCheck}
+                                onClick={() => handleHealthCheck()}
                                 disabled={isChecking || !activeApiKey}
                                 className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm"
                             >

@@ -1,50 +1,26 @@
-// services/recaptchaService.ts
-// ✅ FINAL PRODUCTION VERSION - Uses Google's Official Site Key
 
 /**
  * reCAPTCHA Configuration for Monoklix VEO3 Integration
- * 
- * CRITICAL: This uses Google's OFFICIAL site key from labs.google
- * This is the key that Google VEO API expects and validates!
+ * Uses Google's OFFICIAL site key from labs.google as provided in user files.
  */
 
-// ✅ Google's Official Site Key (from labs.google HAR analysis)
 export const DEFAULT_RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
-
-export const RECAPTCHA_PROJECT_ID = 'gen-lang-client-0426593366';
+export const RECAPTCHA_ACTION = 'PINHOLE_GENERATE'; // Match exactly with recaptcha-extractor.js
 
 const SITE_KEY_STORAGE_KEY = 'monoklix_recaptcha_site_key';
 
-/**
- * Get the currently active reCAPTCHA Site Key.
- * Checks localStorage first, falls back to default.
- */
 export const getRecaptchaSiteKey = (): string => {
   return localStorage.getItem(SITE_KEY_STORAGE_KEY) || DEFAULT_RECAPTCHA_SITE_KEY;
 };
 
-/**
- * Save a custom reCAPTCHA Site Key.
- * Pass empty string or null to reset to default.
- */
-export const setRecaptchaSiteKey = (key: string | null) => {
-  if (!key || !key.trim()) {
-    localStorage.removeItem(SITE_KEY_STORAGE_KEY);
-  } else {
-    localStorage.setItem(SITE_KEY_STORAGE_KEY, key.trim());
-  }
+// #FIX: Added missing setRecaptchaSiteKey function.
+export const setRecaptchaSiteKey = (key: string) => {
+  localStorage.setItem(SITE_KEY_STORAGE_KEY, key);
 };
 
-/**
- * Token cache to avoid regenerating tokens too frequently
- * This is an in-memory cache for specific keys (e.g. linked to a Veo auth token)
- */
 const memoryCache = new Map<string, { token: string; expiresAt: number }>();
-const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const CACHE_TTL_MS = 10 * 1000; // 10 seconds cache (Matching the cache policy in user files)
 
-/**
- * Cache a specific token for a short duration
- */
 export const cacheRecaptchaToken = (key: string, token: string) => {
   memoryCache.set(key, {
     token,
@@ -52,183 +28,21 @@ export const cacheRecaptchaToken = (key: string, token: string) => {
   });
 };
 
-/**
- * Retrieve a cached token if valid
- */
 export const getCachedRecaptchaToken = (key: string): string | undefined => {
   const cached = memoryCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    console.log(`🔄 Using cached reCAPTCHA token for key: ${key}`);
-    return cached.token;
-  }
-  if (cached) {
-    memoryCache.delete(key); // Expired
-  }
+  if (cached && cached.expiresAt > Date.now()) return cached.token;
+  if (cached) memoryCache.delete(key);
   return undefined;
 };
 
-/**
- * Request a reCAPTCHA token via the UI Modal (RecaptchaProvider)
- * This dispatches a custom event that the React component listens for.
- */
 export const requestRecaptchaToken = async (): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // Create the custom event with callbacks for the UI to call
     const event = new CustomEvent('request-recaptcha', {
       detail: {
         onVerify: (token: string) => resolve(token),
-        onCancel: () => reject(new Error('User cancelled reCAPTCHA verification'))
+        onCancel: () => reject(new Error('User cancelled security verification'))
       }
     });
-    
-    // Dispatch to window so RecaptchaProvider can catch it
     window.dispatchEvent(event);
   });
-};
-
-// --- Legacy/Internal Functions below (kept for direct script usage if needed) ---
-
-/**
- * Token cache for internal generateRecaptchaToken usage
- */
-let internalCachedToken: string | null = null;
-let tokenTimestamp: number = 0;
-
-/**
- * Load reCAPTCHA Enterprise script
- */
-export const loadRecaptchaScript = (): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const siteKey = getRecaptchaSiteKey();
-
-    // Check if already loaded
-    if (window.grecaptcha && window.grecaptcha.enterprise) {
-      resolve();
-      return;
-    }
-
-    // Check if script tag already exists
-    const existingScript = document.querySelector(`script[src*="recaptcha/enterprise.js"]`);
-    if (existingScript) {
-      // If the existing script uses a different key, we might need to warn or reload
-      if (!existingScript.getAttribute('src')?.includes(siteKey)) {
-          console.warn('reCAPTCHA script already loaded with different key. A page refresh is recommended.');
-      }
-
-      // Script loading, wait for it
-      const checkInterval = setInterval(() => {
-        if (window.grecaptcha && window.grecaptcha.enterprise) {
-          clearInterval(checkInterval);
-          resolve();
-        }
-      }, 100);
-      
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        reject(new Error('reCAPTCHA script load timeout'));
-      }, 10000);
-      return;
-    }
-
-    // Create and load script
-    const script = document.createElement('script');
-    script.src = `https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`;
-    script.async = true;
-    script.defer = true;
-
-    script.onload = () => {
-      console.log(`✅ reCAPTCHA Enterprise script loaded (${siteKey.substring(0, 5)}...)`);
-      // Wait for grecaptcha.enterprise to be available
-      const checkReady = setInterval(() => {
-        if (window.grecaptcha && window.grecaptcha.enterprise) {
-          clearInterval(checkReady);
-          resolve();
-        }
-      }, 50);
-      
-      setTimeout(() => {
-        clearInterval(checkReady);
-        if (window.grecaptcha && window.grecaptcha.enterprise) {
-          resolve();
-        } else {
-          reject(new Error('grecaptcha.enterprise not available after script load'));
-        }
-      }, 5000);
-    };
-
-    script.onerror = () => {
-      reject(new Error('Failed to load reCAPTCHA Enterprise script'));
-    };
-
-    document.head.appendChild(script);
-  });
-};
-
-/**
- * Generate reCAPTCHA Enterprise token (Invisible/Background method)
- * Note: This might be blocked by browsers if not initiated by user action.
- * Prefer `requestRecaptchaToken` for high reliability.
- */
-export const generateRecaptchaToken = async (action: string = 'submit'): Promise<string> => {
-  // Check cache first
-  const now = Date.now();
-  if (internalCachedToken && (now - tokenTimestamp) < CACHE_TTL_MS) {
-    console.log('🔄 Using cached reCAPTCHA token (internal)');
-    return internalCachedToken;
-  }
-
-  try {
-    // Ensure script is loaded
-    await loadRecaptchaScript();
-
-    if (!window.grecaptcha || !window.grecaptcha.enterprise) {
-      throw new Error('reCAPTCHA Enterprise not available');
-    }
-
-    const siteKey = getRecaptchaSiteKey();
-    console.log(`🔐 Generating reCAPTCHA Enterprise token with key ${siteKey.substring(0,6)}...`);
-    
-    const token = await window.grecaptcha.enterprise.execute(siteKey, { 
-      action: action 
-    });
-
-    if (!token) {
-      throw new Error('Failed to generate reCAPTCHA token');
-    }
-
-    // Cache the token
-    internalCachedToken = token;
-    tokenTimestamp = now;
-
-    console.log('✅ reCAPTCHA Enterprise token generated');
-    return token;
-
-  } catch (error) {
-    console.error('❌ reCAPTCHA token generation failed:', error);
-    throw error;
-  }
-};
-
-/**
- * Clear cached token (call this when user logs out or on error)
- */
-export const clearRecaptchaCache = () => {
-  internalCachedToken = null;
-  tokenTimestamp = 0;
-  memoryCache.clear();
-  console.log('🧹 reCAPTCHA cache cleared');
-};
-
-/**
- * TypeScript declaration for grecaptcha
- */
-declare global {
-  interface Window {
-    grecaptcha: {
-      enterprise: {
-        execute: (siteKey: string, options: { action: string }) => Promise<string>;
-        ready: (callback: () => void) => void;
-      };
-    };
-  }
 }
