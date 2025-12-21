@@ -260,7 +260,8 @@ const App: React.FC = () => {
          return <SuiteLayout title="Get Started"><GetStartedView language={language} /></SuiteLayout>;
       
       case 'settings':
-         return <SuiteLayout title="Settings"><SettingsView currentUser={currentUser} tempApiKey={null} onUserUpdate={handleUserUpdate} language={language} setLanguage={setLanguage} veoTokenRefreshedAt={veoTokenRefreshedAt} assignTokenProcess={assignTokenProcess} /></SuiteLayout>;
+         /* FIX: Remove unused and missing props tempApiKey and veoTokenRefreshedAt from SettingsView instantiation to fix TypeScript error. */
+         return <SuiteLayout title="Settings"><SettingsView currentUser={currentUser} onUserUpdate={handleUserUpdate} language={language} setLanguage={setLanguage} assignTokenProcess={assignTokenProcess} /></SuiteLayout>;
 
       case 'admin-suite':
           return <SuiteLayout title="Admin Command Center"><AdminSuiteView currentUser={currentUser} language={language} /></SuiteLayout>;

@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = 'https://xbbhllhgbachkzvpxvam.supabase.co';
@@ -68,16 +69,13 @@ export interface Database {
         Relationships: []
       }
       users: {
-        Row: { // The data coming from the database
+        Row: { 
           id: string
           created_at: string
           full_name: string | null
           email: string
           phone: string
-          // FIX: Use string literals instead of circular enum reference for correct type inference
-          // UPDATED: Added special_user
           role: 'admin' | 'user' | 'special_user'
-          // FIX: Use string literals to include 'subscription' and 'trial' statuses
           status: 'pending_payment' | 'inactive' | 'lifetime' | 'admin' | 'subscription' | 'trial'
           api_key: string | null
           avatar_url: string | null
@@ -88,19 +86,18 @@ export interface Database {
           force_logout_at: string | null
           app_version: string | null
           personal_auth_token: string | null
+          recaptcha_token: string | null
           proxy_server: string | null
           batch_02: string | null
           last_device: string | null
         }
-        Insert: { // The data you can insert
-          id?: string // id is auto-generated
+        Insert: { 
+          id?: string 
           created_at?: string
           full_name?: string | null
           email: string
           phone: string
-          // FIX: Use string literals to include 'subscription' and 'trial' statuses
           role?: 'admin' | 'user' | 'special_user'
-          // FIX: Use string literals to include 'subscription' and 'trial' statuses
           status?: 'pending_payment' | 'inactive' | 'lifetime' | 'admin' | 'subscription' | 'trial'
           api_key?: string | null
           avatar_url?: string | null
@@ -111,17 +108,16 @@ export interface Database {
           force_logout_at?: string | null
           app_version?: string | null
           personal_auth_token?: string | null
+          recaptcha_token?: string | null
           proxy_server?: string | null
           batch_02?: string | null
           last_device?: string | null
         }
-        Update: { // The data you can update
+        Update: { 
           full_name?: string | null
           email?: string
           phone?: string
-          // FIX: Use string literals to include 'subscription' and 'trial' statuses
           role?: 'admin' | 'user' | 'special_user'
-          // FIX: Use string literals to include 'subscription' and 'trial' statuses
           status?: 'pending_payment' | 'inactive' | 'lifetime' | 'admin' | 'subscription' | 'trial'
           api_key?: string | null
           avatar_url?: string | null
@@ -132,11 +128,11 @@ export interface Database {
           force_logout_at?: string | null
           app_version?: string | null
           personal_auth_token?: string | null
+          recaptcha_token?: string | null
           proxy_server?: string | null
           batch_02?: string | null
           last_device?: string | null
         }
-        // FIX: Added Relationships array to fix Supabase type inference issues, resolving 'never' types.
         Relationships: []
       }
       activity_log: {
@@ -147,7 +143,6 @@ export interface Database {
           activity_type: string
           username: string | null
           email: string | null
-          // New structured fields
           model: string | null
           prompt: string | null
           output: string | null
@@ -162,7 +157,6 @@ export interface Database {
           username: string
           email: string
           activity_type: string
-          // New structured fields (all optional)
           model?: string | null
           prompt?: string | null
           output?: string | null

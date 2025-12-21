@@ -35,7 +35,14 @@ const getFreshTokensFromDB = async (): Promise<{ ya29: string | null, rec: strin
             .eq('id', user.id)
             .single();
             
-        if (error || !data) return { ya29: null, rec: null, username: user.username || 'unknown' };
+        if (error) {
+            console.error("❌ [Supabase Error] Gagal tarik token dari DB:", error.message);
+            // Jika error 42703 (column missing), beritahu user dlm console
+            if (error.message.includes('column') || error.message.includes('recaptcha_token')) {
+                console.warn("⚠️ Column 'recaptcha_token' tidak dikesan dlm Supabase. Sila jalankan ALTER TABLE dlm SQL Editor.");
+            }
+            return { ya29: null, rec: null, username: user.username || 'unknown' };
+        }
 
         return { 
             ya29: data.personal_auth_token?.trim() || null, 
@@ -52,7 +59,7 @@ export const executeProxiedRequest = async (
   serviceType: 'veo' | 'imagen' | 'nanobanana',
   requestBody: any,
   logContext: string,
-  specificToken?: string, // Fallback (tidak lagi diutamakan dlm mode Quantum)
+  specificToken?: string, // Fallback
   onStatusUpdate?: (status: string) => void,
   overrideServerUrl?: string
 ): Promise<{ data: any; successfulToken: string; successfulServerUrl: string }> => {
@@ -61,7 +68,7 @@ export const executeProxiedRequest = async (
   
   if (isGenerationRequest && onStatusUpdate) onStatusUpdate('Neural Handshake...');
   
-  // CRITICAL: Ambil data token terkini dari database
+  // Ambil data token terkini dari database
   const { ya29, rec, username } = await getFreshTokensFromDB();
   
   // Gunakan ya29 dari DB, kalau takda baru guna parameter fallback
@@ -78,7 +85,7 @@ export const executeProxiedRequest = async (
       'X-User-Username': username
   };
 
-  // Lampirkan token reCAPTCHA jika ada dlm DB (biasanya dpt dari skrip PINHOLE_GENERATE)
+  // Lampirkan token reCAPTCHA jika ada dlm DB
   if (rec) {
       headers['X-Recaptcha-Token'] = rec;
       console.log(`🔐 [Quantum Handshake] Dikesan. Menghantar verifikasi ke Proxy.`);
@@ -104,7 +111,7 @@ export const executeProxiedRequest = async (
 
       if (!response.ok) {
           // Handle ralat reCAPTCHA basi (ikut status 403 dlm flow Google Labs)
-          if (response.status === 403 && (text.includes('INVALID_RECAPTCHA') || text.includes('RECAPTCHA_REQUIRED'))) {
+          if (response.status === 403 && (text.includes('INVALID_RECAPTCHA') || text.includes('RECAPTCHA_REQUIRED') || text.includes('RECAPTCHA_VALIDATION_FAILED'))) {
               throw new Error("Handshake Basi. Sila jalankan skrip Quantum Bridge dlm Settings dan tekan Save.");
           }
           throw new Error(data.error?.message || data.error || `API Error ${response.status}`);
