@@ -1,3 +1,4 @@
+
 import { v4 as uuidv4 } from 'uuid';
 import { executeProxiedRequest } from './apiClient';
 import { generateVideoWithVeo3 } from './veo3Service';
@@ -259,8 +260,6 @@ export const runComprehensiveTokenTest = async (token: string, serviceType: 'all
     // Test Veo
     if (serviceType === 'all' || serviceType === 'Veo') {
         try {
-            // #FIX: Removed redundant reCAPTCHA logic. generateVideoWithVeo3 now handles it internally.
-            // This resolves the error where 'requiresRecaptcha' was accessed on the result.
             const result = await generateVideoWithVeo3({
                 prompt: 'test',
                 config: {
@@ -271,7 +270,31 @@ export const runComprehensiveTokenTest = async (token: string, serviceType: 'all
                 },
             }, undefined, true);
 
-            if (result.operations && result.operations.length > 0) {
+            if (result.requiresRecaptcha) {
+                // Trigger reCAPTCHA flow to verify if token works with verification
+                try {
+                    const recaptchaToken = await requestRecaptchaToken();
+                    
+                    const retryResult = await generateVideoWithVeo3({
+                        prompt: 'test',
+                        config: {
+                            authToken: token,
+                            aspectRatio: 'landscape',
+                            useStandardModel: false,
+                            serverUrl: serverUrl,
+                            recaptchaToken: recaptchaToken
+                        },
+                    }, undefined, true);
+
+                    if (retryResult.operations && retryResult.operations.length > 0) {
+                         results.push({ service: 'Veo', success: true, message: 'Operational (Verified)' });
+                    } else {
+                         results.push({ service: 'Veo', success: false, message: 'Failed after Recaptcha' });
+                    }
+                } catch (recaptchaError) {
+                    results.push({ service: 'Veo', success: false, message: 'Recaptcha Required (Cancelled)' });
+                }
+            } else if (result.operations && result.operations.length > 0) {
                 results.push({ service: 'Veo', success: true, message: 'Operational' });
             } else {
                 results.push({ service: 'Veo', success: false, message: 'No operations returned' });

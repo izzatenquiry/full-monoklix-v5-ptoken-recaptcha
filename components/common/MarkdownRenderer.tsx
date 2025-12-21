@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { ClipboardIcon, CheckCircleIcon } from '../Icons';
 import { getTranslations } from '../../services/translations';
@@ -10,9 +9,9 @@ interface MarkdownRendererProps {
   language: Language;
 }
 
-const CodeBlock: React.FC<{ language: Language, codeContent: string }> = ({ language, codeContent }) => {
+const CodeBlock: React.FC<{ language: string, codeContent: string }> = ({ language, codeContent }) => {
     const [copied, setCopied] = useState(false);
-    const T = getTranslations(language).common; // Pass language to getTranslations
+    const T = getTranslations().common;
     const handleCopy = () => {
         if (!codeContent) return;
         navigator.clipboard.writeText(codeContent);
@@ -39,7 +38,7 @@ const CodeBlock: React.FC<{ language: Language, codeContent: string }> = ({ lang
     );
 };
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, language }) => {
+const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
   const renderLine = (line: string) => {
     // Bold
     line = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -58,7 +57,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, language }
           const codeLang = lines[0].trim();
           const codeContent = lines.slice(1).join('\n');
           
-          return <CodeBlock key={index} language={language} codeContent={codeContent} />; // Pass language here
+          return <CodeBlock key={index} language={codeLang} codeContent={codeContent} />;
         }
         
         // Handle other markdown for non-code parts
@@ -85,33 +84,33 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, language }
         };
 
         lines.forEach((line, lineIndex) => {
-          const trimmedLine = line.trim();
-          if (trimmedLine === '') {
-            // If previous line was a list item, add a line break to its content
-            if (listItems.length > 0 && !lastLineWasBlank) {
+          if (line.trim() === '') {
+            if (listItems.length > 0) {
                 const lastItem = listItems[listItems.length - 1] as React.ReactElement<any>;
                 const newContent = <>{lastItem.props.children}<br/></>;
                 listItems[listItems.length-1] = React.cloneElement(lastItem, {children: newContent});
+            } else {
+                 elements.push(<br key={`${index}-${lineIndex}-br`} />);
             }
             lastLineWasBlank = true;
             return;
           }
 
-          const isHeading = trimmedLine.startsWith('#');
-          const isUnorderedListItem = trimmedLine.startsWith('* ') || trimmedLine.startsWith('- ');
-          const orderedListMatch = trimmedLine.match(/^(\d+)\.\s/);
+          const isHeading = line.startsWith('#');
+          const isUnorderedListItem = line.startsWith('* ') || line.startsWith('- ');
+          const orderedListMatch = line.match(/^(\d+)\.\s/);
 
           if (isHeading) {
             flushList();
-            if (trimmedLine.startsWith('# ')) elements.push(<h1 key={`${index}-${lineIndex}`}>{renderLine(trimmedLine.substring(2))}</h1>);
-            else if (trimmedLine.startsWith('## ')) elements.push(<h2 key={`${index}-${lineIndex}`}>{renderLine(trimmedLine.substring(3))}</h2>);
-            else if (trimmedLine.startsWith('### ')) elements.push(<h3 key={`${index}-${lineIndex}`}>{renderLine(trimmedLine.substring(4))}</h3>);
+            if (line.startsWith('# ')) elements.push(<h1 key={`${index}-${lineIndex}`}>{renderLine(line.substring(2))}</h1>);
+            else if (line.startsWith('## ')) elements.push(<h2 key={`${index}-${lineIndex}`}>{renderLine(line.substring(3))}</h2>);
+            else if (line.startsWith('### ')) elements.push(<h3 key={`${index}-${lineIndex}`}>{renderLine(line.substring(4))}</h3>);
           } else if (isUnorderedListItem) {
-            if (listType !== 'ul' || lastLineWasBlank) { // Start new list if type changed or blank line separates items
+            if (listType !== 'ul') {
               flushList();
               listType = 'ul';
             }
-            listItems.push(<li key={`${index}-${lineIndex}`}>{renderLine(trimmedLine.substring(2))}</li>);
+            listItems.push(<li key={`${index}-${lineIndex}`}>{renderLine(line.substring(2))}</li>);
           } else if (orderedListMatch) {
             const currentNumber = parseInt(orderedListMatch[1], 10);
             
@@ -121,17 +120,17 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, language }
               listType = 'ol';
               listStartNumber = currentNumber;
             }
-            listItems.push(<li key={`${index}-${lineIndex}`}>{renderLine(trimmedLine.replace(/^\d+\.\s/, ''))}</li>);
+            listItems.push(<li key={`${index}-${lineIndex}`}>{renderLine(line.replace(/^\d+\.\s/, ''))}</li>);
           } else {
             // This is some other text. If we were in a list and the previous line wasn't blank, it's a continuation.
             if (listType && !lastLineWasBlank) {
               const lastItem = listItems[listItems.length - 1] as React.ReactElement<any>;
-              const newContent = <>{lastItem.props.children}<br />{renderLine(trimmedLine)}</>;
+              const newContent = <>{lastItem.props.children}<br />{renderLine(line.trim())}</>;
               listItems[listItems.length - 1] = React.cloneElement(lastItem, { children: newContent });
             } else {
               // Otherwise, it's a new paragraph, which breaks any list.
               flushList();
-              elements.push(<p key={`${index}-${lineIndex}`}>{renderLine(trimmedLine)}</p>);
+              elements.push(<p key={`${index}-${lineIndex}`}>{renderLine(line)}</p>);
             }
           }
           lastLineWasBlank = false;

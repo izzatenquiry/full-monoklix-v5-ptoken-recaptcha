@@ -1,6 +1,4 @@
-
 import React, { useEffect, useRef, useState } from 'react';
-import { RECAPTCHA_ACTION } from '../../services/recaptchaService';
 
 interface RecaptchaModalProps {
   isOpen: boolean;
@@ -34,96 +32,132 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
     if (!isOpen || processingRef.current) return;
     processingRef.current = true;
 
+    const cleanupRecaptcha = () => {
+        const badges = document.querySelectorAll('.grecaptcha-badge');
+        badges.forEach(b => b.remove());
+        const scripts = document.querySelectorAll('script[src*="recaptcha"]');
+        scripts.forEach(s => s.remove());
+        // @ts-ignore
+        if (window.grecaptcha?.enterprise) {
+            // @ts-ignore
+            window.grecaptcha.enterprise = undefined;
+        }
+    };
+
     const loadAndExecute = async () => {
       try {
-        console.log('[reCAPTCHA] Initializing security handshake...');
+        console.log('🔄 Initializing reCAPTCHA Enterprise...');
         
-        // Remove existing scripts to avoid conflicts
-        document.querySelectorAll('script[src*="recaptcha"]').forEach(s => s.remove());
+        // Force cleanup to prevent script conflicts
+        cleanupRecaptcha();
 
+        // Load reCAPTCHA Enterprise script
         await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script');
+            // CRITICAL: Using enterprise.js instead of api.js
             script.src = `https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`;
             script.async = true;
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error('Failed to load Google Security Engine'));
+            script.defer = true;
+            script.onload = () => {
+                console.log('✅ reCAPTCHA Enterprise script loaded');
+                resolve();
+            };
+            script.onerror = () => {
+                console.error('❌ Failed to load reCAPTCHA Enterprise script');
+                reject(new Error('Failed to load reCAPTCHA Enterprise script'));
+            };
             document.head.appendChild(script);
         });
 
+        // Wait for grecaptcha.enterprise to be ready
+        if (!window.grecaptcha?.enterprise) {
+            throw new Error('reCAPTCHA Enterprise API not available');
+        }
+
         window.grecaptcha.enterprise.ready(async () => {
           try {
-            console.log(`[reCAPTCHA] Executing action: ${RECAPTCHA_ACTION}`);
+            console.log('🤖 Executing reCAPTCHA Enterprise...');
             
-            // Execute exact same action as provided in recaptcha-extractor.js
+            // Execute reCAPTCHA Enterprise with action
             const token = await window.grecaptcha.enterprise.execute(siteKey, { 
-                action: RECAPTCHA_ACTION 
+                action: 'submit' 
             });
             
+            console.log('✅ reCAPTCHA Enterprise token received:', token.substring(0, 50) + '...');
             setIsLoading(false);
+            
+            // Small delay for better UX
             setTimeout(() => {
                 onVerify(token);
                 processingRef.current = false;
             }, 500);
 
           } catch (execError: any) {
-            setError('Verification engine error. Please try again.');
+            console.error('❌ reCAPTCHA Execution Error:', execError);
+            setError('Verification failed. Please check site key configuration.');
             setIsLoading(false);
             processingRef.current = false;
           }
         });
 
       } catch (err) {
-        setError('Connection to security services failed.');
+        console.error('❌ reCAPTCHA Setup Error:', err);
+        setError('Failed to initialize security verification.');
         setIsLoading(false);
         processingRef.current = false;
       }
     };
 
     loadAndExecute();
-    return () => { processingRef.current = false; };
+
+    return () => {
+        processingRef.current = false;
+    };
   }, [isOpen, siteKey, onVerify]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl animate-zoomIn">
-      <div className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 max-w-sm w-full mx-4 shadow-[0_0_50px_rgba(74,108,247,0.3)] relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-brand-start to-transparent"></div>
-        
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-zoomIn">
+      <div className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col items-center justify-center text-center space-y-6">
-          <div className="w-16 h-16 bg-brand-start/10 rounded-2xl flex items-center justify-center border border-brand-start/20">
-             <span className="text-2xl">🔒</span>
-          </div>
-          <h3 className="text-xl font-bold text-white tracking-tight">Security Handshake</h3>
-          <p className="text-sm text-neutral-400">Verifying session with Google Enterprise...</p>
+          <h3 className="text-xl font-bold text-white tracking-tight">Security Verification</h3>
+          <p className="text-sm text-neutral-400">Google Enterprise Security Check</p>
           
           {isLoading && (
             <div className="flex flex-col items-center gap-4">
-                <div className="w-12 h-12 border-4 border-brand-start/30 border-t-brand-start rounded-full animate-spin"></div>
-                <p className="text-brand-start text-xs font-bold animate-pulse uppercase tracking-widest">Generating Token</p>
+                <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                <p className="text-neutral-400 text-sm animate-pulse">Verifying with Google...</p>
             </div>
           )}
           
           {error && (
             <div className="animate-zoomIn">
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/20">
+                <span className="text-2xl">⚠️</span>
+              </div>
               <p className="text-red-400 text-sm font-medium mb-4">{error}</p>
               <button 
                 onClick={onClose} 
-                className="px-6 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-white text-sm transition-all"
+                className="px-6 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white text-sm transition-all"
               >
-                Retry
+                Close & Retry
               </button>
             </div>
           )}
           
           {!isLoading && !error && (
-            <div className="animate-zoomIn flex flex-col items-center">
-              <div className="w-12 h-12 bg-green-500/10 rounded-full flex items-center justify-center mb-2 border border-green-500/20">
-                <span className="text-xl">✅</span>
+            <div className="animate-zoomIn">
+              <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/20">
+                <span className="text-2xl">✅</span>
               </div>
-              <p className="text-green-400 text-sm font-bold uppercase tracking-widest">Verified</p>
+              <p className="text-green-400 text-sm font-bold">Verified Successfully</p>
             </div>
           )}
+        </div>
+        
+        <div className="mt-6 text-[10px] text-neutral-600 text-center">
+          Protected by reCAPTCHA Enterprise
         </div>
       </div>
     </div>

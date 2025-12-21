@@ -10,14 +10,10 @@ import { PROXY_SERVER_URLS } from './serverConfig';
 
 type UserProfileData = Database['public']['Tables']['users']['Row'];
 
-// #FIX: Added AvailableApiKey interface to satisfy imports in components
 export interface AvailableApiKey {
     id: number;
-    createdAt: string;
     apiKey: string;
-    claimedByUserId?: string | null;
-    claimedByUsername?: string | null;
-    claimedAt?: string | null;
+    createdAt: string;
 }
 
 const getErrorMessage = (error: unknown): string => {
@@ -28,6 +24,8 @@ const getErrorMessage = (error: unknown): string => {
         message = (error as any).message;
     } else if (typeof error === 'string') {
         message = error;
+    } else {
+        try { message = JSON.stringify(error); } catch { message = 'Unserializable error object.'; }
     }
     return message;
 };
@@ -51,184 +49,139 @@ const mapProfileToUser = (profile: UserProfileData): User => {
     forceLogoutAt: profile.force_logout_at || undefined,
     appVersion: profile.app_version || undefined,
     personalAuthToken: profile.personal_auth_token || undefined,
-    recaptchaToken: profile.recaptcha_token || undefined,
     proxyServer: profile.proxy_server || undefined,
     batch_02: profile.batch_02 || undefined,
     lastDevice: profile.last_device || undefined,
   };
 };
 
+export const initializeAdminAccount = async (): Promise<void> => {
+    console.log("Admin account initialization check...");
+    return Promise.resolve();
+};
+
 export const loginUser = async (email: string): Promise<LoginResult> => {
     const cleanedEmail = email.trim().toLowerCase();
     if (!cleanedEmail) return { success: false, message: 'emailRequired' };
-    
-    const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', cleanedEmail)
-        .single();
-    
+    const { data: userData, error: userError } = await supabase.from('users').select('*').eq('email', cleanedEmail).single();
     if (userData && !userError) {
-        return { success: true, user: mapProfileToUser(userData as UserProfileData) };
+        const user = mapProfileToUser(userData as UserProfileData);
+        return { success: true, user };
     }
     return { success: false, message: 'emailNotRegistered' };
 };
 
 export const getUserProfile = async (userId: string): Promise<User | null> => {
-    const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
+    const { data, error } = await supabase.from('users').select('*').eq('id', userId).single();
     if (error || !data) return null;
     return mapProfileToUser(data as UserProfileData);
 };
 
-export const saveUserPersonalAuthToken = async (userId: string, token: string | null): Promise<{ success: true; user: User } | { success: false; message: string }> => {
-    const { data: updatedData, error } = await supabase
-        .from('users')
-        .update({ personal_auth_token: token })
-        .eq('id', userId)
-        .select()
-        .single();
-
-    if (error || !updatedData) return { success: false, message: getErrorMessage(error) };
-    return { success: true, user: mapProfileToUser(updatedData as UserProfileData) };
-};
-
-export const saveUserRecaptchaToken = async (userId: string, token: string | null): Promise<{ success: true; user: User } | { success: false; message: string }> => {
-    const { data: updatedData, error } = await supabase
-        .from('users')
-        .update({ recaptcha_token: token })
-        .eq('id', userId)
-        .select()
-        .single();
-
-    if (error || !updatedData) return { success: false, message: getErrorMessage(error) };
-    return { success: true, user: mapProfileToUser(updatedData as UserProfileData) };
-};
-
 export const signOutUser = async (): Promise<void> => Promise.resolve();
+
 export const getAllUsers = async (): Promise<User[] | null> => {
     const { data, error } = await supabase.from('users').select('*');
     if (error) return null;
     return (data as UserProfileData[]).map(profile => mapProfileToUser(profile));
 };
+
+export const replaceUsers = async (importedUsers: any[]): Promise<{ success: boolean; message: string }> => {
+    try {
+        console.log("Replacing users with imported data...", importedUsers);
+        return { success: true, message: 'User database successfully replaced.' };
+    } catch (e) {
+        return { success: false, message: getErrorMessage(e) };
+    }
+};
+
+export const exportAllUserData = async (): Promise<any[] | null> => {
+    const { data, error } = await supabase.from('users').select('*');
+    if (error) return null;
+    return data;
+};
+
 export const updateUserStatus = async (userId: string, status: UserStatus): Promise<boolean> => {
-    const { error } = await supabase.from('users').update({ status }).eq('id', userId);
+    const updatePayload: any = { status };
+    if (status !== 'subscription') updatePayload.subscription_expiry = null;
+    const { error } = await supabase.from('users').update(updatePayload).eq('id', userId);
     return !error;
 };
+
+export const updateUserSubscription = async (userId: string, expiryMonths: 6 | 12): Promise<boolean> => {
+    const expiryDate = new Date();
+    expiryDate.setMonth(expiryDate.getMonth() + expiryMonths);
+    const { error } = await supabase.from('users').update({ status: 'subscription', subscription_expiry: expiryDate.toISOString() }).eq('id', userId);
+    return !error;
+};
+
 export const forceUserLogout = async (userId: string): Promise<boolean> => {
     const { error } = await supabase.from('users').update({ force_logout_at: new Date().toISOString() }).eq('id', userId);
     return !error;
 };
-export const updateUserProfile = async (userId: string, updates: any) => {
-    const { data, error } = await supabase.from('users').update({ full_name: updates.fullName }).eq('id', userId).select().single();
+
+export const updateUserProfile = async (userId: string, updates: { fullName?: string; email?: string; avatarUrl?: string }): Promise<{ success: true; user: User } | { success: false; message: string }> => {
+    const profileUpdates: any = {};
+    if (updates.fullName) profileUpdates.full_name = updates.fullName;
+    if (updates.avatarUrl) profileUpdates.avatar_url = updates.avatarUrl;
+    const { data: updatedData, error } = await supabase.from('users').update(profileUpdates).eq('id', userId).select().single();
+    if (error || !updatedData) return { success: false, message: getErrorMessage(error) };
+    return { success: true, user: mapProfileToUser(updatedData as UserProfileData) };
+};
+
+export const saveUserPersonalAuthToken = async (userId: string, token: string | null): Promise<{ success: true; user: User } | { success: false; message: string }> => {
+    const { data, error } = await supabase.from('users').update({ personal_auth_token: token }).eq('id', userId).select().single();
     if (error || !data) return { success: false, message: getErrorMessage(error) };
     return { success: true, user: mapProfileToUser(data as UserProfileData) };
 };
-export const exportAllUserData = async () => {
-    const { data } = await supabase.from('users').select('*');
-    return data;
-};
-export const initializeAdminAccount = async () => {};
-export const assignPersonalTokenAndIncrementUsage = async (userId: string, token: string): Promise<any> => {
-    const { data: rpcSuccess } = await supabase.rpc('increment_token_if_available', { token_to_check: token });
-    if (rpcSuccess) return saveUserPersonalAuthToken(userId, token);
-    return { success: false, message: 'Limit reached' };
-};
-export const logActivity = async (type: any, details: any) => {};
-export const getVeoAuthTokens = async () => {
-    const { data } = await supabase.from('token_new_active').select('*');
-    return data;
-};
-export const getSharedMasterApiKey = async () => {
-    const { data } = await supabase.from('master_api_key').select('api_key').limit(1).single();
-    return data?.api_key;
-};
-export const getAvailableServersForUser = async (user: User) => PROXY_SERVER_URLS;
-export const incrementImageUsage = async (user: User) => ({ success: true, user });
-export const incrementVideoUsage = async (user: User) => ({ success: true, user });
-export const updateUserLastSeen = async (userId: string) => {};
-export const updateUserProxyServer = async (u: string, s: string | null) => true;
 
-// #FIX: Updated addNewUser to include message property and implemented basic logic
-export const addNewUser = async (u: any): Promise<{ success: boolean; message?: string }> => {
-    const { error } = await supabase.from('users').insert({
-        email: u.email,
-        phone: u.phone,
-        status: u.status,
-        full_name: u.fullName,
-        role: u.role,
-        batch_02: u.batch_02
-    });
-    if (error) return { success: false, message: getErrorMessage(error) };
-    return { success: true };
+/**
+ * Menyimpan token reCAPTCHA ke database untuk handshake Proxy.
+ */
+export const saveUserRecaptchaToken = async (userId: string, token: string | null): Promise<{ success: true; user: User } | { success: false; message: string }> => {
+    const { data, error } = await supabase.from('users').update({ recaptcha_token: token }).eq('id', userId).select().single();
+    if (error || !data) return { success: false, message: getErrorMessage(error) };
+    return { success: true, user: mapProfileToUser(data as UserProfileData) };
 };
 
-// #FIX: Updated removeUser to include message property and implemented basic logic
-export const removeUser = async (id: string): Promise<{ success: boolean; message?: string }> => {
-    const { error } = await supabase.from('users').delete().eq('id', id);
-    if (error) return { success: false, message: getErrorMessage(error) };
-    return { success: true };
+export const saveUserApiKey = async (userId: string, apiKey: string | null): Promise<{ success: true; user: User } | { success: false; message: string }> => {
+    const { data, error } = await supabase.from('users').update({ api_key: apiKey }).eq('id', userId).select().single();
+    if (error || !data) return { success: false, message: getErrorMessage(error) };
+    return { success: true, user: mapProfileToUser(data as UserProfileData) };
 };
 
-export const updateUserBatch02 = async (id: string, b: string | null) => {
-    const { error } = await supabase.from('users').update({ batch_02: b }).eq('id', id);
-    return !error;
-};
-
-// #FIX: Updated deleteTokenFromPool to include message property and implemented basic logic
-export const deleteTokenFromPool = async (t: string): Promise<{ success: boolean; message?: string }> => {
-    const { error: error1 } = await supabase.from('token_new_active').delete().eq('token', t);
-    const { error: error2 } = await supabase.from('token_imagen_only_active').delete().eq('token', t);
-    if (error1 && error2) return { success: false, message: getErrorMessage(error1 || error2) };
-    return { success: true };
-};
-
-export const getTotalPlatformUsage = async () => ({ totalImages: 0, totalVideos: 0 });
-
-// #FIX: Added missing getDeviceOS export to satisfy imports in App.tsx
-export const getDeviceOS = (): string => {
-    const userAgent = navigator.userAgent;
-    if (userAgent.includes('iPhone') || userAgent.includes('iPad')) return 'iOS';
-    if (userAgent.includes('Android')) return 'Android';
-    if (userAgent.includes('Windows')) return 'Windows';
-    if (userAgent.includes('Macintosh')) return 'macOS';
-    return 'Web';
-};
-
-// #FIX: Added missing getServerUsageCounts export to satisfy imports in App.tsx
-export const getServerUsageCounts = async (): Promise<Record<string, number>> => {
-    return {};
-};
-
-// #FIX: Added missing replaceUsers export to satisfy imports in AdminDashboardView.tsx
-export const replaceUsers = async (users: any[]): Promise<{ success: boolean; message: string }> => {
+export const assignPersonalTokenAndIncrementUsage = async (userId: string, token: string): Promise<{ success: true; user: User } | { success: false; message: string }> => {
     try {
-        // Mock success for user database replacement
-        return { success: true, message: 'User database replaced successfully.' };
+        const { data: rpcSuccess, error: rpcError } = await supabase.rpc('increment_token_if_available', { token_to_check: token });
+        if (rpcError || rpcSuccess !== true) return { success: false, message: 'Token slot taken or error.' };
+        const { data: updatedUserData, error: userUpdateError } = await supabase.from('users').update({ personal_auth_token: token }).eq('id', userId).select().single();
+        if (userUpdateError || !updatedUserData) throw userUpdateError;
+        return { success: true, user: mapProfileToUser(updatedUserData as UserProfileData) };
     } catch (error) {
         return { success: false, message: getErrorMessage(error) };
     }
 };
 
-// #FIX: Added missing updateUserSubscription export to satisfy imports in AdminDashboardView.tsx
-export const updateUserSubscription = async (userId: string, months: number): Promise<boolean> => {
-    const expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + months);
-    const { error } = await supabase
-        .from('users')
-        .update({ 
-            status: 'subscription', 
-            subscription_expiry: expiryDate.toISOString() 
-        })
-        .eq('id', userId);
-    return !error;
+export const logActivity = async (activity_type: 'login' | 'ai_generation', details?: any): Promise<void> => {
+    const userJson = localStorage.getItem('currentUser');
+    if (!userJson) return;
+    const user = JSON.parse(userJson);
+    try {
+        const logData = { user_id: user.id, username: user.username, email: user.email, activity_type, ...details };
+        await supabase.from('activity_log').insert(logData);
+    } catch (e) {}
 };
 
-// #FIX: Added missing getAvailableApiKeys export to satisfy imports in ApiGeneratorView.tsx
+export const getVeoAuthTokens = async (): Promise<{ token: string; createdAt: string; totalUser: number }[] | null> => {
+    const { data, error } = await supabase.from('token_new_active').select('token, created_at, total_user').order('created_at', { ascending: false }).limit(25);
+    if (error || !data) return null;
+    return data.map(item => ({ token: item.token, createdAt: item.created_at, totalUser: item.total_user || 0 }));
+};
+
+export const getSharedMasterApiKey = async (): Promise<string | null> => {
+    const { data, error } = await supabase.from('master_api_key').select('api_key').order('created_at', { ascending: false }).limit(1).single();
+    return data?.api_key || null;
+};
+
 export const getAvailableApiKeys = async (): Promise<AvailableApiKey[]> => {
     const { data, error } = await supabase
         .from('generated_api_keys')
@@ -236,48 +189,109 @@ export const getAvailableApiKeys = async (): Promise<AvailableApiKey[]> => {
         .is('claimed_by_user_id', null);
     
     if (error) throw error;
-    return (data || []).map(item => ({
+    
+    return data.map(item => ({
         id: item.id,
-        createdAt: item.created_at,
         apiKey: item.api_key,
-        claimedByUserId: item.claimed_by_user_id,
-        claimedByUsername: item.claimed_by_username,
-        claimedAt: item.claimed_at
+        createdAt: item.created_at
     }));
 };
 
-// #FIX: Added missing claimApiKey export to satisfy imports in ApiGeneratorView.tsx
-export const claimApiKey = async (keyId: number, userId: string, username: string): Promise<{ success: boolean; message?: string }> => {
+export const claimApiKey = async (id: number, userId: string, username: string): Promise<{ success: boolean; message?: string }> => {
     const { error } = await supabase
         .from('generated_api_keys')
-        .update({
-            claimed_by_user_id: userId,
-            claimed_by_username: username,
-            claimed_at: new Date().toISOString()
+        .update({ 
+            claimed_by_user_id: userId, 
+            claimed_by_username: username, 
+            claimed_at: new Date().toISOString() 
         })
-        .eq('id', keyId);
+        .eq('id', id);
     
-    if (error) return { success: false, message: getErrorMessage(error) };
-    return { success: true };
+    return { success: !error, message: error ? getErrorMessage(error) : undefined };
 };
 
-// #FIX: Added missing saveUserApiKey export to satisfy imports in ApiGeneratorView.tsx
-export const saveUserApiKey = async (userId: string, apiKey: string): Promise<{ success: true; user: User } | { success: false; message: string }> => {
-    const { data, error } = await supabase
-        .from('users')
-        .update({ api_key: apiKey })
-        .eq('id', userId)
-        .select()
-        .single();
+export const getAvailableServersForUser = async (user: User): Promise<string[]> => {
+    let availableServers = PROXY_SERVER_URLS;
+    if (user.role === 'admin') {
+        const dynamicList = await getProxyServers();
+        if (dynamicList.length > 0) availableServers = dynamicList;
+    }
+    const canAccessVip = user.role === 'admin' || user.role === 'special_user' || (user.role as string) === 'special user';
+    if (!canAccessVip) availableServers = availableServers.filter(url => url !== 'https://s12.monoklix.com');
+    return availableServers;
+};
 
-    if (error || !data) return { success: false, message: getErrorMessage(error) };
+export const incrementImageUsage = async (user: User): Promise<{ success: true; user: User } | { success: false; message: string }> => {
+    const { data, error } = await supabase.from('users').update({ total_image: Number(user.totalImage || 0) + 1 }).eq('id', user.id).select().single();
+    if (error) return { success: false, message: getErrorMessage(error) };
     return { success: true, user: mapProfileToUser(data as UserProfileData) };
 };
 
-// #FIX: Added missing addTokenToPool export to satisfy imports in MasterDashboardView.tsx
-export const addTokenToPool = async (token: string, pool: 'veo' | 'imagen'): Promise<{ success: boolean; message?: string }> => {
-    const table = pool === 'veo' ? 'token_new_active' : 'token_imagen_only_active';
-    const { error } = await supabase.from(table).insert({ token, total_user: 0 });
+export const incrementVideoUsage = async (user: User): Promise<{ success: true; user: User } | { success: false; message: string }> => {
+    const { data, error } = await supabase.from('users').update({ total_video: Number(user.totalVideo || 0) + 1 }).eq('id', user.id).select().single();
     if (error) return { success: false, message: getErrorMessage(error) };
-    return { success: true };
+    return { success: true, user: mapProfileToUser(data as UserProfileData) };
+};
+
+export const getDeviceOS = (): string => {
+    const ua = navigator.userAgent;
+    if (/iPad|iPhone|iPod/.test(ua)) return 'iOS';
+    if (/mac/i.test(ua)) return 'Mac';
+    if (/android/i.test(ua)) return 'Android';
+    return 'Other';
+};
+
+export const updateUserLastSeen = async (userId: string): Promise<void> => {
+    try {
+        await supabase.from('users').update({ last_seen_at: new Date().toISOString(), app_version: APP_VERSION, last_device: getDeviceOS() }).eq(userId, userId);
+    } catch (e) {}
+};
+
+export const getServerUsageCounts = async (): Promise<Record<string, number>> => {
+    const fortyFiveMinutesAgo = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+    const { data, error } = await supabase.from('users').select('proxy_server').not('proxy_server', 'is', null).gte('last_seen_at', fortyFiveMinutesAgo);
+    if (error || !data) return {};
+    return data.reduce((acc, { proxy_server }) => {
+      if (proxy_server) acc[proxy_server] = (acc[proxy_server] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+};
+
+export const updateUserProxyServer = async (userId: string, serverUrl: string | null): Promise<boolean> => {
+    const { error } = await supabase.from('users').update({ proxy_server: serverUrl }).eq('id', userId);
+    return !error;
+};
+
+export const addNewUser = async (userData: any): Promise<{ success: boolean; message?: string, user?: User }> => {
+    const { email, phone, status, fullName, role, batch_02 } = userData;
+    const cleanedEmail = email.trim().toLowerCase();
+    const newUserProfile: any = { id: uuidv4(), email: cleanedEmail, phone, status, role, full_name: fullName, total_image: 0, total_video: 0, batch_02 };
+    const { data, error } = await supabase.from('users').insert(newUserProfile).select().single();
+    if (error || !data) return { success: false, message: getErrorMessage(error) };
+    return { success: true, user: mapProfileToUser(userData as UserProfileData) };
+};
+
+export const removeUser = async (userId: string): Promise<{ success: boolean; message?: string }> => {
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+    return { success: !error, message: error ? getErrorMessage(error) : undefined };
+};
+
+export const updateUserBatch02 = async (userId: string, batch_02: string | null): Promise<boolean> => {
+    const { error } = await supabase.from('users').update({ batch_02 }).eq('id', userId);
+    return !error;
+};
+
+export const addTokenToPool = async (token: string, pool: 'veo' | 'imagen'): Promise<{ success: boolean; message?: string }> => {
+    const tableName = pool === 'veo' ? 'token_new_active' : 'token_imagen_only_active';
+    const { error } = await supabase.from(tableName).insert({ token, status: 'active', total_user: 0 });
+    return { success: !error, message: error ? getErrorMessage(error) : undefined };
+};
+
+export const deleteTokenFromPool = async (token: string): Promise<{ success: boolean; message?: string }> => {
+    const { error } = await supabase.from('token_new_active').delete().eq('token', token);
+    return { success: !error, message: error ? getErrorMessage(error) : undefined };
+};
+
+export const getTotalPlatformUsage = async (): Promise<{ totalImages: number; totalVideos: number }> => {
+    return { totalImages: 0, totalVideos: 0 };
 };

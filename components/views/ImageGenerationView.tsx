@@ -1,8 +1,7 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { addHistoryItem } from '../../services/historyService';
 import Spinner from '../common/Spinner';
-import { UploadIcon, TrashIcon, DownloadIcon, VideoIcon, StarIcon, WandIcon, AlertTriangleIcon, RefreshCwIcon, UsersIcon, CheckCircleIcon, ImageIcon } from '../Icons';
+import { UploadIcon, TrashIcon, DownloadIcon, VideoIcon, StarIcon, WandIcon, AlertTriangleIcon, RefreshCwIcon, UsersIcon, CheckCircleIcon } from '../Icons';
 import { type MultimodalContent } from '../../services/geminiService';
 import TwoColumnLayout from '../common/TwoColumnLayout';
 import { getImageEditingPrompt } from '../../services/promptManager';
@@ -14,9 +13,6 @@ import { type User, type Language } from '../../types';
 import CreativeDirectionPanel from '../common/CreativeDirectionPanel';
 import { getInitialCreativeDirectionState, type CreativeDirectionState } from '../../services/creativeDirectionService';
 import { UI_SERVER_LIST } from '../../services/serverConfig';
-
-// #FIX: Define SESSION_KEY
-const SESSION_KEY = 'imageGenerationState';
 
 // --- CONFIG FOR PARALLEL GENERATION ---
 const SERVERS = UI_SERVER_LIST;
@@ -33,6 +29,7 @@ const downloadImage = (base64Image: string, fileName: string) => {
   link.href = `data:image/png;base64,${base64Image}`;
   link.download = fileName;
   document.body.appendChild(link);
+  link.click();
   document.body.removeChild(link);
 };
 
@@ -58,8 +55,9 @@ interface ImageGenerationViewProps {
   language: Language;
 }
 
-// #FIX: Changed to a named export to match the import in AiImageSuiteView.tsx
-export const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo, onReEdit, imageToReEdit, clearReEdit, presetPrompt, clearPresetPrompt, currentUser, onUserUpdate, language }) => {
+const SESSION_KEY = 'imageGenerationState';
+
+const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCreateVideo, onReEdit, imageToReEdit, clearReEdit, presetPrompt, clearPresetPrompt, currentUser, onUserUpdate, language }) => {
   const [prompt, setPrompt] = useState('');
   const [images, setImages] = useState<ImageSlot[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -386,86 +384,67 @@ export const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCrea
                   <input type="file" accept="image/png, image/jpeg, image/jpg" multiple ref={fileInputRef} onChange={handleFileChange} className="hidden" />
               </div>
                {isEditing ? (
-                  <p className="text-xs text-primary-600 dark:text-primary-400 mt-2 p-2 bg-primary-50 dark:bg-primary-900/20 rounded-md">
-                      You are in <strong>Image Editing Mode</strong>. The prompt will be used as instructions to edit the source image.
-                  </p>
+                  <p className="text-xs text-primary-600 dark:text-primary-400 mt-2 p-2 bg-primary-500/10 rounded-md" dangerouslySetInnerHTML={{ __html: 'You are in <strong>Image Editing Mode</strong>. The prompt will be used as instructions to edit the source image.' }}/>
               ) : (
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2 p-2 bg-neutral-100 dark:bg-neutral-800/50 rounded-md">
-                      Upload an image to edit it or combine it with your prompt.
-                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Upload an image to edit it or combine it with your prompt.</p>
               )}
           </div>
       </div>
 
       <div>
-        <label htmlFor="image-prompt" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Prompt</label>
-        <textarea
-          id="image-prompt"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder={isEditing ? 'e.g., Change the background to a beach...' : 'e.g., A cute cat wearing sunglasses, cinematic style...'}
-          rows={5}
-          className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:outline-none transition"
-        />
+        <label htmlFor="prompt" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Prompt</label>
+        <textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={isEditing ? 'e.g., Change the background to a beach...' : 'e.g., A cute cat wearing sunglasses...'} rows={4} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:outline-none transition" />
       </div>
-      
-      <CreativeDirectionPanel 
+
+      <CreativeDirectionPanel
         state={creativeState}
         setState={setCreativeState}
         language={language}
-        showPose={false} // Image generation doesn't typically need a pose
+        showPose={false}
         numberOfImages={numberOfImages}
         setNumberOfImages={setNumberOfImages}
         aspectRatio={aspectRatio}
         setAspectRatio={setAspectRatio}
-        showAspectRatio={true} // Always show aspect ratio for Image Generation
       />
-
-      <div className="space-y-4 pt-4 mt-auto border-t border-gray-200 dark:border-neutral-700">
+      
+      <div className="space-y-4 pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold mb-2">Advanced Settings</h2>
           <div>
-              <label htmlFor="negative-prompt" className="block text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Negative Prompt (What to avoid)</label>
-              <textarea
-                  id="negative-prompt"
-                  value={negativePrompt}
-                  onChange={(e) => setNegativePrompt(e.target.value)}
-                  placeholder="e.g., text, watermarks, blurry, ugly"
-                  rows={2}
-                  className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:outline-none transition"
-              />
+            <label htmlFor="negative-prompt" className={`block text-sm font-medium mb-2 transition-colors text-gray-600 dark:text-gray-400`}>Negative Prompt (What to avoid)</label>
+            <textarea id="negative-prompt" value={negativePrompt} onChange={(e) => setNegativePrompt(e.target.value)} placeholder="e.g., text, watermarks, blurry, ugly" rows={2} className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:outline-none transition" />
           </div>
-          <div className="flex gap-4">
-            <button
-                onClick={handleGenerate}
-                disabled={isLoading || (!prompt.trim() && !isEditing)}
-                className="w-full flex items-center justify-center gap-2 bg-primary-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-                {isLoading ? <Spinner /> : isEditing ? 'Apply Edit' : 'Generate Image'}
-            </button>
-            <button
-                onClick={handleReset}
-                disabled={isLoading}
-                className="flex-shrink-0 bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 font-semibold py-3 px-4 rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors disabled:opacity-50"
-            >
-                Reset
-            </button>
-          </div>
-          {error && error !== 'Failed' && <p className="text-red-500 dark:text-red-400 mt-2 text-center">{error}</p>}
+      </div>
+
+      <div className="pt-4 mt-auto">
+        <div className="flex gap-4">
+          <button onClick={handleGenerate} disabled={isLoading} className="w-full flex items-center justify-center gap-2 bg-primary-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            {isLoading ? <Spinner /> : isEditing ? 'Apply Edit' : 'Generate Image'}
+          </button>
+          <button
+            onClick={handleReset}
+            disabled={isLoading}
+            className="flex-shrink-0 bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-200 font-semibold py-3 px-4 rounded-lg hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors disabled:opacity-50"
+          >
+            Reset
+          </button>
+        </div>
+        {error && !isLoading && <p className="text-red-500 dark:text-red-400 mt-2 text-center">{error}</p>}
       </div>
     </>
   );
 
   const ActionButtons: React.FC<{ imageBase64: string; mimeType: string }> = ({ imageBase64, mimeType }) => (
     <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-      <button onClick={() => onReEdit({ base64: imageBase64, mimeType })} title="Re-edit this image" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><WandIcon className="w-4 h-4" /></button>
-      <button onClick={() => onCreateVideo({ prompt: prompt, image: { base64: imageBase64, mimeType } })} title="Create Video from this image" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><VideoIcon className="w-4 h-4" /></button>
-      <button onClick={() => downloadImage(imageBase64, 'monoklix-image')} title="Download Image" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><DownloadIcon className="w-4 h-4" /></button>
+      <button onClick={() => handleLocalReEdit(imageBase64, mimeType)} title="Re-edit" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><WandIcon className="w-4 h-4" /></button>
+      <button onClick={() => onCreateVideo({ prompt, image: { base64: imageBase64, mimeType } })} title="Create Video" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><VideoIcon className="w-4 h-4" /></button>
+      <button onClick={() => downloadImage(imageBase64, `monoklix-${selectedModel}-${Date.now()}.png`)} title="Download" className="flex items-center justify-center w-8 h-8 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"><DownloadIcon className="w-4 h-4" /></button>
     </div>
   );
 
   const rightPanel = (
     <>
-        {images.length > 0 ? (
-           <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
+      {images.length > 0 ? (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-2">
             <div className="flex-1 flex items-center justify-center min-h-0 w-full relative group">
                 {(() => {
                     const selectedImage = images[selectedImageIndex];
@@ -484,7 +463,7 @@ export const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCrea
                                 <p className="text-sm mt-2 max-w-md mx-auto text-neutral-500 dark:text-neutral-400">All attempts failed. Please try again.</p>
                                 <button
                                     onClick={() => handleRetry(selectedImageIndex)}
-                                    className="mt-6 flex items-center justify-center gap-2 bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors"
+                                    className="mt-6 flex items-center justify-center gap-2 bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors mx-auto"
                                 >
                                     <RefreshCwIcon className="w-4 h-4" />
                                     Try Again
@@ -495,6 +474,7 @@ export const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCrea
                     return (
                         <div className="flex flex-col items-center justify-center h-full gap-2">
                             <Spinner />
+                            <p className="text-sm text-neutral-500">{statusMessage}</p>
                             {isLoading && numberOfImages > 1 && (
                                 <p className="text-sm text-neutral-500">
                                     {`Completed: ${progress} / ${numberOfImages}`}
@@ -504,12 +484,12 @@ export const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCrea
                     );
                 })()}
             </div>
-            {images.length > 1 && (
-              <div className="flex-shrink-0 w-full flex justify-center">
+             {images.length > 1 && (
+                <div className="flex-shrink-0 w-full flex justify-center">
                 <div className="flex gap-2 overflow-x-auto p-2">
-                  {images.map((img, index) => (
+                    {images.map((img, index) => (
                     <button key={index} onClick={() => setSelectedImageIndex(index)} className={`w-16 h-16 md:w-20 md:h-20 rounded-md overflow-hidden flex-shrink-0 transition-all duration-200 flex items-center justify-center bg-neutral-200 dark:bg-neutral-800 ${selectedImageIndex === index ? 'ring-4 ring-primary-500' : 'ring-2 ring-transparent hover:ring-primary-300'}`}>
-                       {typeof img === 'string' ? (
+                        {typeof img === 'string' ? (
                             <img src={`data:image/png;base64,${img}`} alt={`Thumbnail ${index + 1}`} className="w-full h-full object-cover" />
                         ) : img && typeof img === 'object' ? (
                             <AlertTriangleIcon className="w-6 h-6 text-red-500" />
@@ -520,26 +500,28 @@ export const ImageGenerationView: React.FC<ImageGenerationViewProps> = ({ onCrea
                             </div>
                         )}
                     </button>
-                  ))}
+                    ))}
                 </div>
-              </div>
+                </div>
             )}
-          </div>
-        ) : isLoading ? (
-            <div className="flex flex-col items-center justify-center h-full gap-2">
-                <Spinner />
-                <p className="text-sm text-neutral-500">
-                    {`Generating${numberOfImages > 1 ? ` (1/${numberOfImages})` : ''}`}
-                </p>
-                {isLoading && numberOfImages > 1 && <p className="text-xs text-neutral-400">Completed: {progress} / {numberOfImages}</p>}
-            </div>
-        ) : (
-          <div className="text-center text-neutral-500 dark:text-neutral-600">
-            <ImageIcon className="w-16 h-16 mx-auto" /><p>Your generated images will appear here.</p>
-          </div>
-        )}
+        </div>
+      ) : isLoading ? (
+        <div className="flex flex-col items-center justify-center h-full gap-2">
+            <Spinner />
+            <p className="text-sm text-neutral-500">{statusMessage}</p>
+            <p className="text-sm text-neutral-500">
+                {`Completed: ${progress} / ${numberOfImages}`}
+            </p>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center h-full text-center text-neutral-500 dark:text-neutral-600">
+            <div><StarIcon className="w-16 h-16 mx-auto" /><p>Your generated images will appear here.</p></div>
+        </div>
+      )}
     </>
   );
-  
+
   return <TwoColumnLayout leftPanel={leftPanel} rightPanel={rightPanel} language={language} />;
 };
+
+export default ImageGenerationView;

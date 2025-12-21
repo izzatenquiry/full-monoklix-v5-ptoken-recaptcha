@@ -1,5 +1,4 @@
 
-
 import React from 'react';
 
 export const AIAgentIcon: React.FC<{ className?: string }> = (props) => (

@@ -1,8 +1,7 @@
 
-
 import React, { useState, useEffect } from 'react';
 import ImageEnhancerView from './ImageEnhancerView';
-import { ImageGenerationView } from './ImageGenerationView';
+import ImageGenerationView from './ImageGenerationView';
 import BackgroundRemoverView from './BackgroundRemoverView';
 import ProductPhotoView from './ProductPhotoView';
 import TiktokAffiliateView from './TiktokAffiliateView';

@@ -2,9 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Spinner from '../common/Spinner';
 import { SparklesIcon, ClipboardIcon, CheckCircleIcon } from '../Icons';
-import { type ViralPrompt, type Language } from '../../types'; // #FIX: Import Language
+import { type ViralPrompt } from '../../types';
 import { getViralPrompts } from '../../services/contentService';
-import { getTranslations } from '../../services/translations'; // #FIX: Import getTranslations
 
 interface ViralPromptCardProps {
     promptItem: ViralPrompt;
@@ -65,16 +64,13 @@ const ViralPromptCard: React.FC<ViralPromptCardProps> = ({ promptItem, onUseProm
 
 interface PromptViralMyViewProps {
     onUsePrompt: (prompt: string) => void;
-    language: Language; // #FIX: Add language prop
 }
 
-const PromptViralMyView: React.FC<PromptViralMyViewProps> = ({ onUsePrompt, language }) => {
+const PromptViralMyView: React.FC<PromptViralMyViewProps> = ({ onUsePrompt }) => {
     const [prompts, setPrompts] = useState<ViralPrompt[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-
-    const T = getTranslations(language).promptViralMyView; // #FIX: Get translations here
 
     useEffect(() => {
         const fetchPrompts = async () => {
@@ -85,14 +81,14 @@ const PromptViralMyView: React.FC<PromptViralMyViewProps> = ({ onUsePrompt, lang
                 setPrompts(fetchedPrompts);
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'An unknown error occurred';
-                setError(T.error.replace('{message}', message));
+                setError(`Could not load prompt library. ${message}`);
             } finally {
                 setIsLoading(false);
             }
         };
 
         fetchPrompts();
-    }, [T.error]);
+    }, []);
 
     const filteredPrompts = useMemo(() => {
         if (!searchTerm) return prompts;
@@ -108,12 +104,12 @@ const PromptViralMyView: React.FC<PromptViralMyViewProps> = ({ onUsePrompt, lang
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                 <div>
-                    <h1 className="text-xl font-bold sm:text-3xl">{T.title}</h1>
-                    <p className="text-sm sm:text-base text-neutral-500 dark:text-neutral-400 mt-1">{T.subtitle}</p>
+                    <h1 className="text-xl font-bold sm:text-3xl">Viral Prompts (MY)</h1>
+                    <p className="text-sm sm:text-base text-neutral-500 dark:text-neutral-400 mt-1">A list of prompts specially curated for the Malaysian market.</p>
                 </div>
                  <input
                     type="text"
-                    placeholder={T.searchPlaceholder}
+                    placeholder="Search library..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full sm:w-64 bg-white dark:bg-neutral-800/50 border border-neutral-300 dark:border-neutral-700 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:outline-none transition"
@@ -128,7 +124,7 @@ const PromptViralMyView: React.FC<PromptViralMyViewProps> = ({ onUsePrompt, lang
 
             {error && (
                 <div className="text-center py-20 text-red-500 dark:text-red-400">
-                    <p className="font-semibold">{T.error.split('.')[0]}</p>
+                    <p className="font-semibold">Error Loading Library</p>
                     <p className="text-sm">{error}</p>
                 </div>
             )}
@@ -143,8 +139,8 @@ const PromptViralMyView: React.FC<PromptViralMyViewProps> = ({ onUsePrompt, lang
                 ) : (
                     <div className="text-center py-20 text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-900 p-6 rounded-lg shadow-sm">
                         <SparklesIcon className="w-16 h-16 mx-auto mb-4 text-primary-500" />
-                        <p className="font-semibold text-xl">{T.noResults}</p>
-                        <p className="text-base mt-2">{searchTerm ? T.noResultsTerm.replace('{term}', searchTerm) : T.empty}</p>
+                        <p className="font-semibold text-xl">No Prompts Found</p>
+                        <p className="text-base mt-2">{searchTerm ? `No prompts match your search for "${searchTerm}".` : "This library is currently empty. Data will appear once added to the Supabase table."}</p>
                     </div>
                 )
             )}

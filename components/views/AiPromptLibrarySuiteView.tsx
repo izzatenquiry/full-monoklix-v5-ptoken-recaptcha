@@ -26,8 +26,8 @@ const AiPromptLibrarySuiteView: React.FC<AiPromptLibrarySuiteViewProps> = ({ onU
             case 'library':
                 return <LibraryView onUsePrompt={onUsePrompt} language={language} />;
             case 'viral-my':
-                // #FIX: Pass the language prop to PromptViralMyView.
-                return <PromptViralMyView onUsePrompt={onUsePrompt} language={language} />;
+                // PromptViralMyView does not require a language prop as its content is curated.
+                return <PromptViralMyView onUsePrompt={onUsePrompt} />;
             default:
                 return <LibraryView onUsePrompt={onUsePrompt} language={language} />;
         }

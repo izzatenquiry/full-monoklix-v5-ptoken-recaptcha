@@ -1,4 +1,3 @@
-
 import { v4 as uuidv4 } from 'uuid';
 import { executeProxiedRequest } from './apiClient';
 import { cropImageToAspectRatio } from './imageService';
@@ -54,10 +53,10 @@ export const uploadImageForNanoBanana = async (
     }
   };
 
-  // ROUTING FIX: Use 'nanobanana' service type to utilize dedicated /api/nanobanana/upload endpoint.
+  // ROUTING FIX: Use 'imagen' service type to utilize existing /api/imagen/upload endpoint on the proxy.
   const { data, successfulToken, successfulServerUrl } = await executeProxiedRequest(
     '/upload',
-    'nanobanana', 
+    'imagen', 
     requestBody, 
     'NANOBANANA UPLOAD', 
     authToken, 
@@ -103,7 +102,7 @@ export const generateImageWithNanoBanana = async (
           sessionId: `;${Date.now()}`
       },
       imageModelSettings: {
-          imageModel: 'GEM_PIX_2', // Corrected Model Name for NanoBanana
+          imageModel: 'GEM_PIX_2', // Corrected Model Name
           aspectRatio: aspectRatioApiMap[config.aspectRatio || '1:1'] || "IMAGE_ASPECT_RATIO_SQUARE",
       },
       prompt: fullPrompt,
@@ -114,10 +113,10 @@ export const generateImageWithNanoBanana = async (
   const logContext = isHealthCheck ? 'NANOBANANA HEALTH CHECK' : 'NANOBANANA GENERATE';
   console.log(`🍌 [NanoBanana Service] Sending T2I request to API client.`);
   
-  // ROUTING FIX: Use 'nanobanana' service type to utilize dedicated /api/nanobanana/generate endpoint.
+  // ROUTING FIX: Use 'imagen' service type to utilize existing /api/imagen/generate endpoint.
   const { data: result } = await executeProxiedRequest(
     '/generate',
-    'nanobanana', 
+    'imagen', 
     requestBody,
     logContext,
     config.authToken,
@@ -125,7 +124,7 @@ export const generateImageWithNanoBanana = async (
     config.serverUrl
   );
 
-  // Response Parsing: Handle 'media' array format from NanoBanana models (e.g., GEM_PIX_2)
+  // Response Parsing: Handle 'media' array format from GEM_PIX_2
   if (result.media && Array.isArray(result.media)) {
     console.log(`🍌 [NanoBanana Service] Received T2I result with ${result.media.length} media items.`);
     
@@ -144,7 +143,7 @@ export const generateImageWithNanoBanana = async (
     }
   }
 
-  // Fallback for standard Imagen response structure (if for some reason it's still imagen-like)
+  // Fallback for standard Imagen response structure
   console.log(`🍌 [NanoBanana Service] Using raw response (fallback parsing).`);
   return result;
 };
@@ -171,17 +170,17 @@ export const runNanoBananaRecipe = async (
         },
         seed: config.seed || Math.floor(Math.random() * 2147483647),
         imageModelSettings: {
-            imageModel: 'GEM_PIX_2', // Corrected Model Name for NanoBanana
+            imageModel: 'GEM_PIX_2', // Corrected Model Name
             aspectRatio: aspectRatioApiMap[config.aspectRatio || '1:1'] || "IMAGE_ASPECT_RATIO_SQUARE"
         },
         userInstruction,
         recipeMediaInputs
     };
 
-    // ROUTING FIX: Use 'nanobanana' service type to utilize dedicated /api/nanobanana/run-recipe endpoint.
+    // ROUTING FIX: Use 'imagen' service type to utilize existing /api/imagen/run-recipe endpoint.
     const { data: result } = await executeProxiedRequest(
       '/run-recipe',
-      'nanobanana',
+      'imagen',
       requestBody,
       'NANOBANANA RECIPE',
       config.authToken,

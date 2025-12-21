@@ -1,5 +1,4 @@
 
-
 import React from 'react';
 import { type View, type NavItem, type User, UserStatus, Language } from '../types';
 import {
@@ -11,7 +10,7 @@ import { getTranslations } from '../services/translations';
 
 const getNavItems = (language: Language): NavItem[] => {
     // FIX: Remove the `language` argument from `getTranslations` call to match the function signature.
-    const T = getTranslations(language).sidebar; // Pass language here
+    const T = getTranslations().sidebar;
     return [
         { id: 'home', label: T.home, description: T.homeDesc, section: 'main', icon: HomeIcon, isSpecial: true },
         { id: 'get-started', label: T.getStarted, section: 'main', icon: GraduationCapIcon },
@@ -42,7 +41,7 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, onLogout, currentUser, isOpen, onClose, language }) => {
   const navItems = getNavItems(language);
   // FIX: Remove the `language` argument from `getTranslations` call to match the function signature.
-  const T = getTranslations(language).sidebar; // Pass language here
+  const T = getTranslations().sidebar;
 
   const handleItemClick = async (viewId: View | 'logout') => {
     if (viewId === 'logout') {

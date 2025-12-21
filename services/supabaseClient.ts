@@ -1,4 +1,3 @@
-
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = 'https://xbbhllhgbachkzvpxvam.supabase.co';
@@ -89,7 +88,6 @@ export interface Database {
           force_logout_at: string | null
           app_version: string | null
           personal_auth_token: string | null
-          recaptcha_token: string | null
           proxy_server: string | null
           batch_02: string | null
           last_device: string | null
@@ -113,7 +111,6 @@ export interface Database {
           force_logout_at?: string | null
           app_version?: string | null
           personal_auth_token?: string | null
-          recaptcha_token?: string | null
           proxy_server?: string | null
           batch_02?: string | null
           last_device?: string | null
@@ -135,7 +132,6 @@ export interface Database {
           force_logout_at?: string | null
           app_version?: string | null
           personal_auth_token?: string | null
-          recaptcha_token?: string | null
           proxy_server?: string | null
           batch_02?: string | null
           last_device?: string | null

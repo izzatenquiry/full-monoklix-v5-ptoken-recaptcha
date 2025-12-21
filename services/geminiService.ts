@@ -11,6 +11,9 @@ import { type User } from '../types';
 import { getImagenProxyUrl, getVeoProxyUrl } from './apiClient';
 import { generateImageWithImagen } from "./imagenV3Service";
 import { PROXY_SERVER_URLS } from './serverConfig';
+// **NEW**: Import recaptcha services
+import { requestRecaptchaToken, cacheRecaptchaToken, getCachedRecaptchaToken } from './recaptchaService';
+
 
 const getActiveApiKey = (): string | null => {
     // This key is set and managed by App.tsx, which places the correct key
@@ -220,22 +223,96 @@ const attemptVideoGeneration = async (
     const useStandardModel = !model.includes('fast');
     if (onStatusUpdate) onStatusUpdate('Initializing generation...');
     
-    // #FIX: Removed manual reCAPTCHA logic as generateVideoWithVeo3 now handles it internally.
-    // This resolves the error where 'requiresRecaptcha' was accessed on a type that didn't have it.
-    const result = await generateVideoWithVeo3({
-        prompt,
-        imageMediaId,
-        config: {
-            aspectRatio: aspectRatioForVeo3,
-            useStandardModel,
-            authToken: successfulToken || undefined,
-            serverUrl: successfulServerUrl
-        },
-    }, onStatusUpdate);
+    // **NEW**: Try with cached recaptcha token first
+    const cacheKey = `veo3_${successfulToken || 'default'}`;
+    let recaptchaToken = getCachedRecaptchaToken(cacheKey);
+    
+    let initialOperations: any[];
+    let videoCreationToken: string;
+    let genServerUrl: string;
+    let requiresRecaptcha = false;
 
-    const initialOperations = result.operations;
-    const videoCreationToken = result.successfulToken;
-    successfulServerUrl = result.successfulServerUrl;
+    // --- STEP 3: GENERATE REQUEST WITH RECAPTCHA SUPPORT ---
+    try {
+        // First attempt - with cached token if available
+        const result = await generateVideoWithVeo3({
+            prompt,
+            imageMediaId,
+            config: {
+                aspectRatio: aspectRatioForVeo3,
+                useStandardModel,
+                authToken: successfulToken || undefined,
+                serverUrl: successfulServerUrl,
+                recaptchaToken: recaptchaToken || undefined // **NEW**: Include cached token if available
+            },
+        }, onStatusUpdate);
+
+        initialOperations = result.operations;
+        videoCreationToken = result.successfulToken;
+        genServerUrl = result.successfulServerUrl;
+        requiresRecaptcha = result.requiresRecaptcha || false;
+
+    } catch (error: any) {
+        // **NEW**: Check if it's a recaptcha requirement
+        const errorMsg = error.message || '';
+        if (errorMsg.includes('RECAPTCHA_REQUIRED') || 
+            errorMsg.toLowerCase().includes('recaptcha') ||
+            errorMsg.includes('403')) {
+            requiresRecaptcha = true;
+            videoCreationToken = successfulToken || '';
+            genServerUrl = successfulServerUrl || '';
+            initialOperations = [];
+        } else {
+            throw error; // Other errors bubble up
+        }
+    }
+
+    // **NEW**: If reCAPTCHA is required, request token from user and retry
+    if (requiresRecaptcha || (initialOperations && initialOperations.length === 0)) {
+        console.log('🔐 reCAPTCHA verification required, requesting token from user...');
+        if (onStatusUpdate) onStatusUpdate('Security verification required...');
+        
+        try {
+            // Request reCAPTCHA token from user via modal
+            recaptchaToken = await requestRecaptchaToken();
+            
+            // Cache the token for future requests (2 minute expiry)
+            cacheRecaptchaToken(cacheKey, recaptchaToken);
+            
+            if (onStatusUpdate) onStatusUpdate('Retrying with verification...');
+            
+            // Retry the generation with reCAPTCHA token
+            const retryResult = await generateVideoWithVeo3({
+                prompt,
+                imageMediaId,
+                config: {
+                    aspectRatio: aspectRatioForVeo3,
+                    useStandardModel,
+                    authToken: successfulToken || undefined,
+                    serverUrl: successfulServerUrl,
+                    recaptchaToken: recaptchaToken
+                },
+            }, onStatusUpdate);
+
+            initialOperations = retryResult.operations;
+            videoCreationToken = retryResult.successfulToken;
+            genServerUrl = retryResult.successfulServerUrl;
+
+            if (!initialOperations || initialOperations.length === 0) {
+                throw new Error("Video generation failed even after reCAPTCHA verification");
+            }
+            
+        } catch (recaptchaError: any) {
+            if (recaptchaError.message.includes('cancelled')) {
+                throw new Error('Video generation cancelled: reCAPTCHA verification was not completed');
+            }
+            throw recaptchaError;
+        }
+    }
+
+    // If this was T2V (no upload), we now lock the server for the checking phase
+    successfulServerUrl = genServerUrl;
+    if (!successfulToken) successfulToken = videoCreationToken;
 
     if (!initialOperations || initialOperations.length === 0) {
         throw new Error("Video generation failed to start. The API did not return any operations.");
