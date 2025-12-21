@@ -18,7 +18,7 @@ export const getNanoBananaProxyUrl = (): string => getImagenProxyUrl();
 
 /**
  * Tarik token paling segar dari Supabase sebelum memulakan request.
- * reCAPTCHA biasanya expired dlm 2 minit, jadi ini memastikan kita tak guna token lama.
+ * reCAPTCHA biasanya expired dlm 2 minit (TTL ikut kod Electron).
  */
 const getFreshTokensFromDB = async (): Promise<{ ya29: string | null, rec: string | null, username: string }> => {
     try {
@@ -28,6 +28,7 @@ const getFreshTokensFromDB = async (): Promise<{ ya29: string | null, rec: strin
         const user = JSON.parse(userJson);
         if (!user || !user.id) return { ya29: null, rec: null, username: 'unknown' };
 
+        // Tarik terus dari DB untuk elak data basi dlm localStorage
         const { data, error } = await supabase
             .from('users')
             .select('personal_auth_token, recaptcha_token, username')
@@ -51,14 +52,14 @@ export const executeProxiedRequest = async (
   serviceType: 'veo' | 'imagen' | 'nanobanana',
   requestBody: any,
   logContext: string,
-  specificToken?: string, // Fallback token (boleh diabaikan dlm mode Handshake)
+  specificToken?: string, // Fallback (tidak lagi diutamakan dlm mode Quantum)
   onStatusUpdate?: (status: string) => void,
   overrideServerUrl?: string
 ): Promise<{ data: any; successfulToken: string; successfulServerUrl: string }> => {
   const currentServerUrl = overrideServerUrl || (serviceType === 'veo' ? getVeoProxyUrl() : getImagenProxyUrl());
   const isGenerationRequest = logContext.includes('GENERATE') || logContext.includes('RECIPE') || logContext.includes('UPLOAD');
   
-  if (isGenerationRequest && onStatusUpdate) onStatusUpdate('Quantum Handshaking...');
+  if (isGenerationRequest && onStatusUpdate) onStatusUpdate('Neural Handshake...');
   
   // CRITICAL: Ambil data token terkini dari database
   const { ya29, rec, username } = await getFreshTokensFromDB();
@@ -67,20 +68,20 @@ export const executeProxiedRequest = async (
   const finalYa29 = ya29 || specificToken?.trim();
 
   if (!finalYa29) {
-      throw new Error("Sesi Aktif Tidak Dijumpai. Sila ke 'Settings' dan jalankan Quantum Bridge.");
+      throw new Error("Sesi Aktif Tidak Dijumpai. Sila jalankan skrip Quantum Bridge di Settings.");
   }
 
-  // HEADERS: Selaras dengan logic Proxy
+  // HEADERS: Selaras dengan logic Proxy MONOklix
   const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${finalYa29}`,
       'X-User-Username': username
   };
 
-  // Masukkan reCAPTCHA token ke header untuk divalidasi oleh Proxy
+  // Lampirkan token reCAPTCHA jika ada dlm DB (biasanya dpt dari skrip PINHOLE_GENERATE)
   if (rec) {
       headers['X-Recaptcha-Token'] = rec;
-      console.log(`🔐 [Quantum Bridge] Token handshake dikesan. Menghantar ke Proxy.`);
+      console.log(`🔐 [Quantum Handshake] Dikesan. Menghantar verifikasi ke Proxy.`);
   }
 
   try {
@@ -102,9 +103,9 @@ export const executeProxiedRequest = async (
       }
 
       if (!response.ok) {
-          // Handle ralat reCAPTCHA dari Proxy kita
-          if (response.status === 403 && (text.includes('INVALID_RECAPTCHA') || text.includes('NO_TOKEN'))) {
-              throw new Error("Handshake reCAPTCHA Gagal/Basi. Sila jalankan semula skrip di tab Google Labs dan tekan 'Save' dlm Settings.");
+          // Handle ralat reCAPTCHA basi (ikut status 403 dlm flow Google Labs)
+          if (response.status === 403 && (text.includes('INVALID_RECAPTCHA') || text.includes('RECAPTCHA_REQUIRED'))) {
+              throw new Error("Handshake Basi. Sila jalankan skrip Quantum Bridge dlm Settings dan tekan Save.");
           }
           throw new Error(data.error?.message || data.error || `API Error ${response.status}`);
       }
@@ -113,7 +114,7 @@ export const executeProxiedRequest = async (
   } catch (error: any) {
       addLogEntry({ 
           model: logContext, 
-          prompt: 'Quantum Request', 
+          prompt: 'Quantum Handshake Request', 
           output: error.message, 
           tokenCount: 0, 
           status: 'Error', 

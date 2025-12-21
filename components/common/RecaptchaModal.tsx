@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 
 interface RecaptchaModalProps {
@@ -46,7 +47,7 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
 
     const loadAndExecute = async () => {
       try {
-        console.log('🔄 Initializing reCAPTCHA Enterprise...');
+        console.log('🔄 Initializing reCAPTCHA Enterprise for VEO...');
         
         // Force cleanup to prevent script conflicts
         cleanupRecaptcha();
@@ -54,7 +55,6 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
         // Load reCAPTCHA Enterprise script
         await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script');
-            // CRITICAL: Using enterprise.js instead of api.js
             script.src = `https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`;
             script.async = true;
             script.defer = true;
@@ -76,14 +76,14 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
 
         window.grecaptcha.enterprise.ready(async () => {
           try {
-            console.log('🤖 Executing reCAPTCHA Enterprise...');
+            console.log('🤖 Executing reCAPTCHA Handshake (Action: PINHOLE_GENERATE)...');
             
-            // Execute reCAPTCHA Enterprise with action
+            // CRITICAL FIX: Mesti guna PINHOLE_GENERATE supaya Proxy tak reject
             const token = await window.grecaptcha.enterprise.execute(siteKey, { 
-                action: 'submit' 
+                action: 'PINHOLE_GENERATE' 
             });
             
-            console.log('✅ reCAPTCHA Enterprise token received:', token.substring(0, 50) + '...');
+            console.log('✅ reCAPTCHA Handshake Token received');
             setIsLoading(false);
             
             // Small delay for better UX
@@ -94,7 +94,7 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
 
           } catch (execError: any) {
             console.error('❌ reCAPTCHA Execution Error:', execError);
-            setError('Verification failed. Please check site key configuration.');
+            setError('Verification failed. Action mismatch or timeout.');
             setIsLoading(false);
             processingRef.current = false;
           }
@@ -118,16 +118,16 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-zoomIn">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md animate-zoomIn">
       <div className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col items-center justify-center text-center space-y-6">
-          <h3 className="text-xl font-bold text-white tracking-tight">Security Verification</h3>
-          <p className="text-sm text-neutral-400">Google Enterprise Security Check</p>
+          <h3 className="text-xl font-bold text-white tracking-tight">Quantum Handshake</h3>
+          <p className="text-sm text-neutral-400">Verifying session with Google AI Labs...</p>
           
           {isLoading && (
             <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                <p className="text-neutral-400 text-sm animate-pulse">Verifying with Google...</p>
+                <p className="text-neutral-400 text-sm animate-pulse">Requesting secure token...</p>
             </div>
           )}
           
@@ -151,13 +151,13 @@ const RecaptchaModal: React.FC<RecaptchaModalProps> = ({
               <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/20">
                 <span className="text-2xl">✅</span>
               </div>
-              <p className="text-green-400 text-sm font-bold">Verified Successfully</p>
+              <p className="text-green-400 text-sm font-bold">Session Verified</p>
             </div>
           )}
         </div>
         
         <div className="mt-6 text-[10px] text-neutral-600 text-center">
-          Protected by reCAPTCHA Enterprise
+          Powered by reCAPTCHA Enterprise (Labs Edition)
         </div>
       </div>
     </div>
