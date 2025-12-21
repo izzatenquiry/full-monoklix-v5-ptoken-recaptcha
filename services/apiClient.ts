@@ -28,26 +28,25 @@ const getFreshTokensFromDB = async (): Promise<{ ya29: string | null, rec: strin
         const user = JSON.parse(userJson);
         if (!user || !user.id) return { ya29: null, rec: null, username: 'unknown' };
 
-        // Tarik terus dari DB untuk elak data basi dlm localStorage
+        // FIX: Kita select 'email' saja, jangan letak 'username' sebab takda dlm DB
         const { data, error } = await supabase
             .from('users')
-            .select('personal_auth_token, recaptcha_token, username')
+            .select('personal_auth_token, recaptcha_token, email')
             .eq('id', user.id)
             .single();
             
         if (error) {
             console.error("❌ [Supabase Error] Gagal tarik token dari DB:", error.message);
-            // Jika error 42703 (column missing), beritahu user dlm console
-            if (error.message.includes('column') || error.message.includes('recaptcha_token')) {
-                console.warn("⚠️ Column 'recaptcha_token' tidak dikesan dlm Supabase. Sila jalankan ALTER TABLE dlm SQL Editor.");
-            }
             return { ya29: null, rec: null, username: user.username || 'unknown' };
         }
+
+        // Jana username dari email secara on-the-fly
+        const derivedUsername = data.email ? data.email.split('@')[0] : 'unknown';
 
         return { 
             ya29: data.personal_auth_token?.trim() || null, 
             rec: data.recaptcha_token?.trim() || null,
-            username: data.username || 'unknown'
+            username: derivedUsername
         };
     } catch (e) {
         return { ya29: null, rec: null, username: 'unknown' };
