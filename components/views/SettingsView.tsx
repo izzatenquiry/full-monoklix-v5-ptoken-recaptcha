@@ -44,7 +44,7 @@ const ActivationPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
             if (resYa29.success && resRec.success) {
                 onUserUpdate(resRec.user); 
                 setSaveStatus('success');
-                setRecaptchaInput(''); // Clear for security since reCAPTCHA is 1-time use
+                setRecaptchaInput(''); 
             } else {
                 setSaveStatus('error');
             }
@@ -61,63 +61,61 @@ const ActivationPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
         const siteKey = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV";
         const snippet = `
 (async () => {
-  console.log("%c 🚀 MONOklix Quantum Bridge V7 (Robust Edition) ", "background: #4A6CF7; color: white; padding: 10px; border-radius: 8px; font-weight: bold;");
+  console.log("%c 🚀 MONOklix Quantum Bridge V8 (Robust Engine) ", "background: #000; color: #4A6CF7; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #4A6CF7;");
   
   try {
-    // 1. Verifikasi Status Login (Ikut logic Electron extractor)
-    const isLoggedIn = document.querySelector('[aria-label*="Google Account"]') !== null || 
-                       document.querySelector('img[alt*="Google Account"]') !== null;
+    console.log("🔑 Probing Google Labs Session via Direct API...");
+    const sessionRes = await fetch('https://labs.google/fx/api/auth/session');
     
-    if (!isLoggedIn) {
-        alert("❌ Ralat: Sesi Google tidak dikesan. Sila pastikan anda sudah login akaun Google AI anda.");
+    if (!sessionRes.ok) {
+        alert("❌ Ralat: Sesi Google tidak dijumpai (401/403). Sila pastikan anda sudah LOGIN dlm tab ini.");
         return;
     }
 
-    console.log("🔑 Mencari Access Token (ya29) melalui Deep Recursive Scan...");
-    const sessionRes = await fetch('https://labs.google/fx/api/auth/session');
     const sessionData = await sessionRes.json();
     
-    // Logic Deep Scan: Menggeledah seluruh JSON untuk cari string bermula 'ya29.'
-    const findYa29 = (obj) => {
+    // Deep Recursive Scan Logic (To find ya29 prefix)
+    const findToken = (obj) => {
         if (typeof obj === 'string' && obj.startsWith('ya29.')) return obj;
         if (typeof obj !== 'object' || obj === null) return null;
         for (let key in obj) {
-            const found = findYa29(obj[key]);
+            const found = findToken(obj[key]);
             if (found) return found;
         }
         return null;
     };
 
-    const ya29 = findYa29(sessionData);
+    const ya29 = findToken(sessionData);
 
-    console.log("🔐 Menjana reCAPTCHA Handshake (Action: PINHOLE_GENERATE)...");
-    // CRITICAL: Guna grecaptcha.enterprise ikut kod flow-automator
+    if(!ya29) {
+        console.error("Session Data received but ya29 token is missing:", sessionData);
+        alert("⚠️ Ralat: YA29_TOKEN tidak dijumpai dlm data sesi. Sila REFRESH tab Flow ini dan cuba lagi.");
+        return;
+    }
+
+    console.log("🔐 Generating reCAPTCHA Handshake (PINHOLE_GENERATE)...");
     const recToken = await grecaptcha.enterprise.execute('${siteKey}', {action: 'PINHOLE_GENERATE'});
 
-    console.log("%c ✅ QUANTUM DATA EXTRACTED ", "color: #A05BFF; font-weight: bold; font-size: 14px;");
-    console.log("--- SILA SALIN DATA DI BAWAH ---");
+    console.log("%c ✅ QUANTUM DATA EXTRACTED ", "color: #00FF00; font-weight: bold; font-size: 14px;");
+    console.log("------------------------------");
     console.log("YA29_TOKEN:", ya29);
     console.log("RECAPTCHA_TOKEN:", recToken);
-    console.log("--- END ---");
+    console.log("------------------------------");
     
-    if(!ya29) {
-        alert("⚠️ Ralat: YA29_TOKEN tidak dijumpai. STRATEGI FALLBACK: Muat semula tab Flow dan cuba lagi.");
-    } else {
-        alert("✅ Berjaya! Sila salin YA29_TOKEN dan RECAPTCHA_TOKEN dari Console (F12) ke MONOklix.");
-    }
+    alert("✅ BERJAYA! Data Quantum telah diekstrak ke Console (F12). Sila salin kedua-dua token ke MONOklix.");
+
   } catch (e) {
-    alert("❌ Gagal: Pastikan anda berada di tab FLOW Google Labs.");
+    alert("❌ Gagal: Masalah teknikal dikesan. Pastikan anda berada di tab FLOW Google Labs.");
     console.error(e);
   }
 })();`.trim();
         
         navigator.clipboard.writeText(snippet);
-        alert("Skrip V7 disalin! Paste dlm Console Google Labs tab FLOW.");
+        alert("Skrip V8 disalin! Sila paste semula dlm Console Google Labs.");
     };
 
     return (
         <div className="space-y-6">
-            {/* Guide Card */}
             <div className="bg-gradient-to-br from-brand-start/20 to-brand-end/10 border border-brand-start/30 p-6 rounded-3xl relative overflow-hidden shadow-glow">
                 <div className="relative z-10">
                     <div className="flex items-center gap-3 mb-2">
@@ -130,7 +128,7 @@ const ActivationPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                     
                     <div className="mt-6 flex flex-col sm:flex-row gap-3">
                         <button onClick={copyBridgeScript} className="flex-1 bg-white text-black py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:scale-[1.02] transition-all shadow-lg active:scale-95">
-                            <ClipboardIcon className="w-5 h-5" /> Salin Skrip V7 (Deep Scan)
+                            <ClipboardIcon className="w-5 h-5" /> Salin Skrip V8 (Robust)
                         </button>
                         <a href="https://labs.google/fx/tools/flow" target="_blank" rel="noreferrer" className="bg-white/10 text-white px-6 py-4 rounded-2xl font-bold text-sm hover:bg-white/20 transition-all flex items-center gap-2 justify-center">
                             Buka Google Labs <SendIcon className="w-4 h-4" />
@@ -139,7 +137,6 @@ const ActivationPanel: React.FC<{currentUser: User, onUserUpdate: (u: User) => v
                 </div>
             </div>
 
-            {/* Sync Form - Screenshot Aligned */}
             <div className="bg-white/5 border border-white/10 p-6 rounded-3xl space-y-5">
                 <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
                     <KeyIcon className="w-5 h-5 text-brand-start" /> Activation Data Sync
@@ -214,10 +211,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUserUpdate, 
 
             <div className="flex-1 overflow-y-auto custom-scrollbar pb-20">
                 <div className="space-y-8 animate-zoomIn">
-                    {/* Activation Panel di Atas Sekali */}
                     <ActivationPanel currentUser={currentUser} onUserUpdate={onUserUpdate}/>
 
-                    {/* Profile & Media Cache */}
                     <div className="space-y-6">
                         <div className="bg-white/5 border border-white/10 p-8 rounded-3xl">
                             <label className="block text-[10px] font-bold text-neutral-500 uppercase tracking-[0.2em] mb-3">Display Name</label>
